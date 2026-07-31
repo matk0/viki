@@ -1,0 +1,839 @@
+openapi: 3.1.0
+info:
+  title: viki API
+  version: 2.0.0
+  description: Versioned API for the company specification wiki and its Hermes-backed assistant host.
+servers:
+  - url: /
+tags:
+  - name: auth
+  - name: wiki
+  - name: review
+  - name: assistant
+  - name: operations
+paths:
+  /healthz:
+    get:
+      tags: [operations]
+      operationId: health
+      security: []
+      responses:
+        "200": { $ref: "#/components/responses/Health" }
+  /readyz:
+    get:
+      tags: [operations]
+      operationId: readiness
+      security: []
+      responses:
+        "200": { $ref: "#/components/responses/Health" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Authenticated user and CSRF token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      responses:
+        "204": { description: Session removed. }
+        "401": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: currentUser
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Error" }
+  /api/v1/pages:
+    get:
+      tags: [wiki]
+      operationId: listOrSearchPages
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: kind, in: query, schema: { $ref: "#/components/schemas/PageKind" } }
+        - { name: includeDrafts, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: Page list or ranked search results when q is supplied.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [pages]
+                    properties:
+                      pages: { type: array, items: { $ref: "#/components/schemas/Page" } }
+                  - type: object
+                    required: [results]
+                    properties:
+                      results: { type: array, items: { $ref: "#/components/schemas/SearchResult" } }
+        "401": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [wiki]
+      operationId: createPage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePageRequest" }
+      responses:
+        "201":
+          description: New page with its initial draft revision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PageDetail" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/pages/{pageId}:
+    parameters:
+      - $ref: "#/components/parameters/PageId"
+    get:
+      tags: [wiki]
+      operationId: getPage
+      responses:
+        "200":
+          description: Page with accepted and current draft states.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PageDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/pages/{pageId}/revisions:
+    parameters:
+      - $ref: "#/components/parameters/PageId"
+    post:
+      tags: [wiki]
+      operationId: saveRevision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SaveRevisionRequest" }
+      responses:
+        "201":
+          description: New immutable draft revision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Revision" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/revisions/{revisionId}:
+    parameters:
+      - $ref: "#/components/parameters/RevisionId"
+    get:
+      tags: [wiki]
+      operationId: getRevision
+      responses:
+        "200":
+          description: Exact immutable revision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Revision" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/revisions/{revisionId}/publish:
+    parameters:
+      - $ref: "#/components/parameters/RevisionId"
+    post:
+      tags: [review]
+      operationId: publishRevision
+      responses:
+        "200":
+          description: Page after atomic publication.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PageDetail" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/revisions/{revisionId}/vote:
+    parameters:
+      - $ref: "#/components/parameters/RevisionId"
+    put:
+      tags: [review]
+      operationId: setVote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VoteRequest" }
+      responses:
+        "200":
+          description: Vote attached to the exact revision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Vote" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/comments:
+    post:
+      tags: [review]
+      operationId: createComment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommentRequest" }
+      responses:
+        "201":
+          description: Thread or reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Comment" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/comments/{commentId}/resolve:
+    parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [review]
+      operationId: resolveComment
+      responses:
+        "200":
+          description: Resolved blocking thread.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Comment" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/audit:
+    get:
+      tags: [wiki]
+      operationId: listAudit
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 80 } }
+      responses:
+        "200":
+          description: Append-only audit events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events: { type: array, items: { $ref: "#/components/schemas/AuditEvent" } }
+  /api/v1/assistant/status:
+    get:
+      tags: [assistant]
+      operationId: getAssistantStatus
+      responses:
+        "200":
+          description: Connectivity and configuration state of both private Hermes profiles.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantStatus" }
+  /api/v1/assistant/conversations:
+    get:
+      tags: [assistant]
+      operationId: listAssistantConversations
+      responses:
+        "200":
+          description: Body-free Viki bindings enriched from authorized Hermes sessions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [conversations]
+                properties:
+                  conversations: { type: array, items: { $ref: "#/components/schemas/AssistantConversationSummary" } }
+    post:
+      tags: [assistant]
+      operationId: createAssistantConversation
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAssistantConversationRequest" }
+      responses:
+        "201":
+          description: New logical conversation binding. Hermes sessions are created lazily.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantConversation" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/assistant/conversations/{conversationId}:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      tags: [assistant]
+      operationId: getAssistantConversation
+      responses:
+        "200":
+          description: Unified Q&A/Edit timeline projected from the paired Hermes sessions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantConversation" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [assistant]
+      operationId: updateAssistantConversationSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAssistantConversationSettingsRequest" }
+      responses:
+        "200":
+          description: Updated body-free conversation settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantConversationSummary" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/assistant/conversations/{conversationId}/messages:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    post:
+      tags: [assistant]
+      operationId: submitAssistantMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubmitAssistantMessageRequest" }
+      responses:
+        "202":
+          description: Hermes accepted the turn. Consume progress from the conversation event stream.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantTurnAccepted" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/assistant/conversations/{conversationId}/events:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      tags: [assistant]
+      operationId: streamAssistantEvents
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: { type: string }
+          description: Last received Viki event identifier for short in-memory replay.
+      responses:
+        "200":
+          description: SSE stream containing only the documented safe assistant event types.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/assistant/conversations/{conversationId}/stop:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    post:
+      tags: [assistant]
+      operationId: stopAssistantTurn
+      responses:
+        "202": { description: Interruption was forwarded to the active Hermes profile. }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/assistant/conversations/{conversationId}/clarifications/{requestId}:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+      - $ref: "#/components/parameters/ClarificationRequestId"
+    post:
+      tags: [assistant]
+      operationId: respondToAssistantClarification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantClarificationResponse" }
+      responses:
+        "202": { description: Clarification answer was forwarded to Hermes. }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/draft-proposals:
+    get:
+      tags: [assistant]
+      operationId: listDraftProposals
+      responses:
+        "200":
+          description: All staged Edit proposals owned by the current user, with pending proposals first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [proposals]
+                properties:
+                  proposals:
+                    type: array
+                    items: { $ref: "#/components/schemas/AssistantDraftProposal" }
+  /api/v1/draft-proposals/{proposalId}:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+    get:
+      tags: [assistant]
+      operationId: getDraftProposal
+      responses:
+        "200":
+          description: Staged Edit proposal owned by the current user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/draft-proposals/{proposalId}/approve:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+    post:
+      tags: [assistant]
+      operationId: approveDraftProposal
+      responses:
+        "200":
+          description: Proposal atomically published as accepted revisions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/draft-proposals/{proposalId}/discard:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+    post:
+      tags: [assistant]
+      operationId: discardDraftProposal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RejectDraftProposalInput" }
+      responses:
+        "200":
+          description: Proposal rejected with a recorded reason and without creating wiki records.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: viki_session
+    CsrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  parameters:
+    PageId:
+      name: pageId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RevisionId:
+      name: revisionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ClarificationRequestId:
+      name: requestId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    ProposalId:
+      name: proposalId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: Request error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/APIError" }
+    Health:
+      description: Service status.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [status]
+            properties:
+              status: { $ref: "#/components/schemas/HealthStatus" }
+  schemas:
+    HealthStatus:
+      type: string
+      enum: [ok]
+    PageKind:
+      type: string
+      enum: [primitive, scenario, subscenario]
+    PrimitiveKind:
+      type: string
+      enum: [noun, verb]
+    RevisionStatus:
+      type: string
+      enum: [draft, accepted, superseded]
+    VoteValue:
+      type: string
+      enum: [approve, reject]
+    AssistantMode:
+      type: string
+      enum: [qa, edit]
+    AssistantConversationState:
+      type: string
+      enum: [idle, running, awaiting_clarification, stopped, error, unavailable]
+    AssistantEventType:
+      type: string
+      enum: [message_delta, activity, citation, draft_created, draft_proposed, draft_published, draft_discarded, clarification, completed, stopped, error]
+    BDDKeyword:
+      type: string
+      enum: [given, when, then, and, but]
+    User:
+      type: object
+      required: [id, email, displayName, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        createdAt: { type: string, format: date-time }
+    Page:
+      type: object
+      required: [id, kind, slug, title, accepted, hasDraft, unresolvedRejections, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/PageKind" }
+        primitiveKind: { $ref: "#/components/schemas/PrimitiveKind" }
+        parentId: { type: string, format: uuid }
+        slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        title: { type: string }
+        acceptedRevisionId: { type: string, format: uuid }
+        latestDraftRevisionId: { type: string, format: uuid }
+        accepted: { type: boolean }
+        hasDraft: { type: boolean }
+        unresolvedRejections: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    BDDStep:
+      type: object
+      required: [keyword, text]
+      properties:
+        id: { type: string, format: uuid }
+        stableId: { type: string, format: uuid }
+        position: { type: integer, minimum: 0 }
+        keyword: { $ref: "#/components/schemas/BDDKeyword" }
+        text: { type: string, minLength: 1 }
+    PageReference:
+      type: object
+      required: [relation]
+      properties:
+        targetPageId: { type: string, format: uuid }
+        targetClientKey: { type: string }
+        targetTitle: { type: string }
+        relation: { type: string }
+    RevisionContent:
+      type: object
+      required: [title, bodyMd, aliases, steps, references]
+      properties:
+        title: { type: string, minLength: 1 }
+        bodyMd: { type: string }
+        aliases: { type: array, items: { type: string } }
+        steps: { type: array, items: { $ref: "#/components/schemas/BDDStep" } }
+        references: { type: array, items: { $ref: "#/components/schemas/PageReference" } }
+    Revision:
+      allOf:
+        - $ref: "#/components/schemas/RevisionContent"
+        - type: object
+          required: [id, pageId, number, status, createdBy, createdAt]
+          properties:
+            id: { type: string, format: uuid }
+            pageId: { type: string, format: uuid }
+            number: { type: integer, minimum: 1 }
+            status: { $ref: "#/components/schemas/RevisionStatus" }
+            baseRevisionId: { type: string, format: uuid }
+            createdBy: { $ref: "#/components/schemas/User" }
+            createdAt: { type: string, format: date-time }
+            acceptedAt: { type: string, format: date-time }
+    RevisionSummary:
+      type: object
+      required: [id, number, status, title, createdBy, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer }
+        status: { $ref: "#/components/schemas/RevisionStatus" }
+        title: { type: string }
+        createdBy: { $ref: "#/components/schemas/User" }
+        createdAt: { type: string, format: date-time }
+        acceptedAt: { type: string, format: date-time }
+    Comment:
+      type: object
+      required: [id, pageId, revisionId, body, blocking, author, createdAt, replies]
+      properties:
+        id: { type: string, format: uuid }
+        pageId: { type: string, format: uuid }
+        revisionId: { type: string, format: uuid }
+        parentCommentId: { type: string, format: uuid }
+        anchorKind: { type: string }
+        anchorId: { type: string }
+        body: { type: string }
+        blocking: { type: boolean }
+        author: { $ref: "#/components/schemas/User" }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time }
+        resolvedBy: { $ref: "#/components/schemas/User" }
+        replies: { type: array, items: { $ref: "#/components/schemas/Comment" } }
+    Vote:
+      type: object
+      required: [revisionId, value, user, createdAt]
+      properties:
+        revisionId: { type: string, format: uuid }
+        value: { $ref: "#/components/schemas/VoteValue" }
+        user: { $ref: "#/components/schemas/User" }
+        commentId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+    PageDetail:
+      type: object
+      required: [page, revisions, comments, votes, children]
+      properties:
+        page: { $ref: "#/components/schemas/Page" }
+        acceptedRevision: { $ref: "#/components/schemas/Revision" }
+        draftRevision: { $ref: "#/components/schemas/Revision" }
+        revisions: { type: array, items: { $ref: "#/components/schemas/RevisionSummary" } }
+        comments: { type: array, items: { $ref: "#/components/schemas/Comment" } }
+        votes: { type: array, items: { $ref: "#/components/schemas/Vote" } }
+        children: { type: array, items: { $ref: "#/components/schemas/Page" } }
+    Citation:
+      type: object
+      required: [revisionId, pageId, pageTitle, draft]
+      properties:
+        revisionId: { type: string, format: uuid }
+        pageId: { type: string, format: uuid }
+        pageTitle: { type: string }
+        draft: { type: boolean }
+    AssistantDraftReceipt:
+      type: object
+      required: [revisionId, pageId, pageTitle]
+      properties:
+        revisionId: { type: string, format: uuid }
+        pageId: { type: string, format: uuid }
+        pageTitle: { type: string }
+    AssistantDraftProposalStatus:
+      type: string
+      enum: [awaiting_approval, published, discarded]
+    RejectDraftProposalInput:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    AssistantChangeOperation:
+      type: object
+      required: [operation, kind, slug, content]
+      properties:
+        operation: { type: string, enum: [create, revise] }
+        clientKey: { type: string }
+        pageId: { type: string, format: uuid }
+        baseRevisionId: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/PageKind" }
+        primitiveKind: { $ref: "#/components/schemas/PrimitiveKind" }
+        parentId: { type: string, format: uuid }
+        parentClientKey: { type: string }
+        slug: { type: string }
+        content: { $ref: "#/components/schemas/RevisionContent" }
+    AssistantDraftProposal:
+      type: object
+      required: [id, conversationId, turnId, summary, operations, status, publishedRevisions, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid }
+        turnId: { type: string, format: uuid }
+        summary: { type: string }
+        operations: { type: array, items: { $ref: "#/components/schemas/AssistantChangeOperation" } }
+        status: { $ref: "#/components/schemas/AssistantDraftProposalStatus" }
+        rejectionReason: { type: string }
+        publishedRevisions: { type: array, items: { $ref: "#/components/schemas/Revision" } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        publishedAt: { type: string, format: date-time }
+    AssistantMessage:
+      type: object
+      required: [id, role, mode, content, citations, drafts, createdAt]
+      properties:
+        id: { type: string }
+        role: { type: string, enum: [user, assistant] }
+        mode: { $ref: "#/components/schemas/AssistantMode" }
+        content: { type: string }
+        citations: { type: array, items: { $ref: "#/components/schemas/Citation" } }
+        drafts: { type: array, items: { $ref: "#/components/schemas/AssistantDraftReceipt" } }
+        createdAt: { type: string, format: date-time }
+    AssistantProfileStatus:
+      type: object
+      required: [mode, connected, configured, ready]
+      properties:
+        mode: { $ref: "#/components/schemas/AssistantMode" }
+        connected: { type: boolean }
+        configured: { type: boolean }
+        ready: { type: boolean }
+        message: { type: string }
+    AssistantStatus:
+      type: object
+      required: [available, qa, edit]
+      properties:
+        available: { type: boolean }
+        qa: { $ref: "#/components/schemas/AssistantProfileStatus" }
+        edit: { $ref: "#/components/schemas/AssistantProfileStatus" }
+    AssistantConversationSummary:
+      type: object
+      required: [id, title, primaryMode, lastMode, state, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        primaryMode: { $ref: "#/components/schemas/AssistantMode" }
+        lastMode: { $ref: "#/components/schemas/AssistantMode" }
+        state: { $ref: "#/components/schemas/AssistantConversationState" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AssistantClarification:
+      type: object
+      required: [requestId, mode, message]
+      properties:
+        requestId: { type: string }
+        mode: { $ref: "#/components/schemas/AssistantMode" }
+        message: { type: string }
+        choices: { type: array, items: { type: string } }
+    AssistantConversation:
+      allOf:
+        - $ref: "#/components/schemas/AssistantConversationSummary"
+        - type: object
+          required: [messages]
+          properties:
+            messages: { type: array, items: { $ref: "#/components/schemas/AssistantMessage" } }
+            clarification: { $ref: "#/components/schemas/AssistantClarification" }
+    CreateAssistantConversationRequest:
+      type: object
+      properties:
+        primaryMode: { $ref: "#/components/schemas/AssistantMode" }
+    UpdateAssistantConversationSettingsRequest:
+      type: object
+      properties:
+        primaryMode: { $ref: "#/components/schemas/AssistantMode" }
+      minProperties: 1
+      additionalProperties: false
+    SubmitAssistantMessageRequest:
+      type: object
+      required: [content, mode]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 12000 }
+        mode: { $ref: "#/components/schemas/AssistantMode" }
+      additionalProperties: false
+    AssistantTurnAccepted:
+      type: object
+      required: [turnId, mode]
+      properties:
+        turnId: { type: string }
+        mode: { $ref: "#/components/schemas/AssistantMode" }
+    AssistantClarificationResponse:
+      type: object
+      required: [answer]
+      properties:
+        answer: { type: string, minLength: 1, maxLength: 12000 }
+      additionalProperties: false
+    AuditEvent:
+      type: object
+      required: [id, action, entityType, metadata, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string }
+        entityType: { type: string }
+        entityId: { type: string, format: uuid }
+        actor: { $ref: "#/components/schemas/User" }
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    SearchResult:
+      type: object
+      required: [page, revisionId, excerpt, score, draft]
+      properties:
+        page: { $ref: "#/components/schemas/Page" }
+        revisionId: { type: string, format: uuid }
+        excerpt: { type: string }
+        score: { type: number }
+        draft: { type: boolean }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+    LoginResponse:
+      type: object
+      required: [user, csrfToken]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        csrfToken: { type: string }
+    CreatePageRequest:
+      type: object
+      required: [kind, slug, content]
+      properties:
+        kind: { $ref: "#/components/schemas/PageKind" }
+        primitiveKind: { $ref: "#/components/schemas/PrimitiveKind" }
+        parentId: { type: string, format: uuid }
+        slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        content: { $ref: "#/components/schemas/RevisionContent" }
+    SaveRevisionRequest:
+      type: object
+      required: [baseRevisionId, content]
+      properties:
+        baseRevisionId: { type: string, format: uuid }
+        content: { $ref: "#/components/schemas/RevisionContent" }
+    VoteRequest:
+      type: object
+      required: [value]
+      properties:
+        value: { $ref: "#/components/schemas/VoteValue" }
+        reason: { type: string, description: Required when value is reject. }
+    CommentRequest:
+      type: object
+      required: [pageId, revisionId, body]
+      properties:
+        pageId: { type: string, format: uuid }
+        revisionId: { type: string, format: uuid }
+        body: { type: string, minLength: 1 }
+        parentCommentId: { type: string, format: uuid }
+        anchorKind: { type: string, enum: [field, step] }
+        anchorId: { type: string }
+    APIError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+security:
+  - SessionCookie: []
+    CsrfHeader: []

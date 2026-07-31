@@ -1,0 +1,11 @@
+.git
+.env
+frontend/node_modules
+frontend/dist
+frontend/playwright-report
+frontend/test-results
+backend/viki
+work
+outputs
+__pycache__
+*.pyc

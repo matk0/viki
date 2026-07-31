@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.playwright-cli/
+backend/viki
+frontend/node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+outputs/
+test-results/
+work/
+coverage/
+__pycache__/
+*.pyc

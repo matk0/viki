@@ -1,0 +1,12 @@
+name: viki
+version: 1.0.0
+description: Narrow, identity-aware bridge from Hermes to the viki specification wiki
+provides_tools:
+  - search_viki
+  - get_viki_page
+  - get_viki_revision
+  - propose_viki_changeset
+requires_env:
+  - name: VIKI_HERMES_TOOL_TOKEN
+    description: Service credential for the private viki Hermes tool API
+    secret: true

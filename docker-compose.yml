@@ -1,0 +1,79 @@
+name: i-want-to-build-the-following-2
+
+services:
+  database:
+    image: pgvector/pgvector:pg18
+    ports:
+      - "127.0.0.1:${VIKI_DB_PORT:-5433}:5432"
+    environment:
+      POSTGRES_DB: viki
+      POSTGRES_USER: viki
+      POSTGRES_PASSWORD: viki
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viki -d viki"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - viki-postgres:/var/lib/postgresql
+
+  viki:
+    build:
+      context: .
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://viki:viki@database:5432/viki?sslmode=disable
+      INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-password}
+      HERMES_QA_WS_URL: ws://127.0.0.1:9119/api/ws
+      HERMES_EDIT_WS_URL: ws://127.0.0.1:9120/api/ws
+      HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:-viki-local-qa-session}
+      HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:-viki-local-edit-session}
+      HERMES_QA_CONFIGURED: ${OPENAI_API_KEY:+true}
+      HERMES_EDIT_CONFIGURED: ${OPENAI_API_KEY:+true}
+      VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:-viki-local-tool-service}
+      VIKI_INTERNAL_ADDRESS: 127.0.0.1:8090
+      FRONTEND_DIR: /app/public
+      COOKIE_SECURE: "false"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  hermes:
+    build:
+      context: .
+      dockerfile: hermes/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      viki:
+        condition: service_started
+    network_mode: service:viki
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      HERMES_MODEL: ${HERMES_MODEL:-gpt-5.6-terra}
+      HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:-viki-local-qa-session}
+      HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:-viki-local-edit-session}
+      VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:-viki-local-tool-service}
+      VIKI_INTERNAL_URL: http://127.0.0.1:8090
+    volumes:
+      - viki-hermes:/opt/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS http://127.0.0.1:9119/api/status >/dev/null &&
+          curl -fsS http://127.0.0.1:9120/api/status >/dev/null
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+volumes:
+  viki-postgres:
+  viki-hermes:

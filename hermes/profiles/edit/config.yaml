@@ -1,0 +1,43 @@
+model:
+  default: @@HERMES_MODEL@@
+  provider: openai-api
+
+agent:
+  max_turns: 32
+  reasoning_effort: medium
+  disabled_toolsets:
+    - browser
+    - code_execution
+    - cronjob
+    - delegation
+    - file
+    - image_gen
+    - project
+    - search
+    - skills
+    - skills_hub
+    - terminal
+    - todo
+    - tts
+    - vision
+    - web
+
+platform_toolsets:
+  cli: [memory, clarify, viki_read, viki_edit]
+
+known_plugin_toolsets:
+  cli: [viki_read, viki_edit]
+
+plugins:
+  enabled: [viki]
+
+mcp_servers: {}
+
+security:
+  allow_lazy_installs: false
+
+tool_loop_guardrails:
+  hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 3
+    idempotent_no_progress: 4
