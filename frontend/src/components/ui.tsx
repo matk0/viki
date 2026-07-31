@@ -1,5 +1,4 @@
 import { Children, type ReactNode } from 'react'
-import { Pencil } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Page, RevisionStatus } from '../api/types'
@@ -15,7 +14,7 @@ export function EmptyState({ icon, title, body, action }: { icon?: ReactNode; ti
 export function StatusBadge({ status, page }: { status?: RevisionStatus; page?: Page }) {
   const resolved: RevisionStatus | 'rejected' = status ?? ((page?.unresolvedRejections ?? 0) > 0 ? 'rejected' : page?.hasDraft ? 'draft' : page?.accepted ? 'accepted' : 'draft')
   const label = resolved === 'accepted' ? 'Publikované' : resolved === 'rejected' ? 'Odmietnuté' : resolved === 'superseded' ? 'Nahradené' : 'Koncept'
-  return <span className={`status-badge ${resolved}`}>{resolved === 'draft' ? <Pencil size={11} /> : <i />}{label}</span>
+  return <span className={`status-badge ${resolved}`}>{label}</span>
 }
 
 interface InlineMarkdownLink {

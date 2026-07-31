@@ -75,7 +75,7 @@ describe('DraftPage', () => {
   it('shows live generation before Hermes has staged the proposal', () => {
     render(<DraftPage proposalId={proposal.id} />)
 
-    expect(screen.getByRole('heading', { name: 'Draft' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Koncept' })).toBeInTheDocument()
     expect(screen.getByText('Viki pripravuje návrh')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /publikovať/i })).not.toBeInTheDocument()
   })

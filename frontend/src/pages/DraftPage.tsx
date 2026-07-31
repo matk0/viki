@@ -88,7 +88,7 @@ export function DraftPage({ proposalId }: { proposalId: string }) {
 
   return <div className="draft-page page-container">
     <header className="draft-page-heading">
-      <h1>Draft</h1>
+      <h1>Koncept</h1>
       <p>{proposal?.summary ?? 'Viki práve skladá z vašej požiadavky konkrétne zmeny.'}</p>
     </header>
 

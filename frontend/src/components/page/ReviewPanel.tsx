@@ -36,7 +36,7 @@ export function ReviewPanel({ detail, revision, onChanged }: { detail: PageDetai
   return <div className="review-panel-content">
     <div className="review-summary">
       <div><strong>Kontrola revízie #{revision.number}</strong><span>{revision.status === 'draft' ? 'Koncept čaká na rozhodnutie' : 'Publikovaná revízia'}</span></div>
-      <div className="vote-counts"><span><ThumbsUp size={14} />{votes.filter((vote) => vote.value === 'approve').length}</span><span><ThumbsDown size={14} />{votes.filter((vote) => vote.value === 'reject').length}</span></div>
+      <div className="vote-counts"><span>Súhlas: {votes.filter((vote) => vote.value === 'approve').length}</span><span>Nesúhlas: {votes.filter((vote) => vote.value === 'reject').length}</span></div>
     </div>
     {revision.status === 'draft' && <>
       <div className="vote-actions">

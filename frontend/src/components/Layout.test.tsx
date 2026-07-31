@@ -34,20 +34,27 @@ vi.mock('../router', () => ({
 vi.mock('./assistant/AssistantPanel', () => ({ AssistantPanel: () => null }))
 vi.mock('./NewPageDialog', () => ({ NewPageDialog: () => null }))
 
-it('uses only one single-star icon for the assistant launcher in both states', () => {
+it('uses one filled AI-sparkles icon for the assistant launcher in both states', () => {
   mocks.assistantOpen = false
   const { rerender } = render(<Layout><p>Obsah</p></Layout>)
 
   const closedLauncher = screen.getByRole('button', { name: 'Otvoriť asistenta' })
   expect(closedLauncher.querySelectorAll('svg')).toHaveLength(1)
-  expect(closedLauncher.querySelector('.lucide-star')).toBeInTheDocument()
-  expect(closedLauncher.querySelector('.lucide-sparkles')).not.toBeInTheDocument()
+  expect(closedLauncher.querySelector('.lucide-sparkles')).toHaveAttribute('fill', 'currentColor')
+  expect(closedLauncher.querySelector('.lucide-star')).not.toBeInTheDocument()
 
   mocks.assistantOpen = true
   rerender(<Layout><p>Obsah</p></Layout>)
 
   const openLauncher = screen.getByRole('button', { name: 'Zavrieť asistenta' })
   expect(openLauncher.querySelectorAll('svg')).toHaveLength(1)
-  expect(openLauncher.querySelector('.lucide-star')).toBeInTheDocument()
+  expect(openLauncher.querySelector('.lucide-sparkles')).toHaveAttribute('fill', 'currentColor')
   expect(openLauncher.querySelector('.lucide-x')).not.toBeInTheDocument()
+})
+
+it('uses Koncepty for the draft navigation item', () => {
+  render(<Layout><p>Obsah</p></Layout>)
+
+  expect(screen.getByRole('link', { name: 'Koncepty' })).toHaveAttribute('href', '/drafts')
+  expect(screen.queryByRole('link', { name: 'Drafty' })).not.toBeInTheDocument()
 })

@@ -87,7 +87,7 @@ describe('LibraryPage', () => {
     expect(screen.queryByText('Zákazník')).not.toBeInTheDocument()
   })
 
-  it('uses one color-coded status badge per primitive row and no leading icon tile', () => {
+  it('uses one text-only color-coded status badge per primitive row and no leading icon tile', () => {
     render(<Router><LibraryPage kind="primitive" /></Router>)
 
     const acceptedRow = screen.getByRole('link', { name: /^Zákazník/ })
@@ -102,8 +102,10 @@ describe('LibraryPage', () => {
     expect(rejectedRow.querySelector('.page-icon-box')).toBeNull()
     expect(acceptedBadge).toHaveClass('accepted')
     expect(draftBadge).toHaveClass('draft')
-    expect(draftBadge?.querySelector('.lucide-pencil')).not.toBeNull()
     expect(rejectedBadge).toHaveClass('rejected')
     expect(rejectedBadge).toHaveTextContent('Odmietnuté')
+    for (const badge of [acceptedBadge, draftBadge, rejectedBadge]) {
+      expect(badge?.querySelector('svg, i')).toBeNull()
+    }
   })
 })

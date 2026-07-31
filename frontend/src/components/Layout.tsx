@@ -6,7 +6,7 @@ import {
   LogOut,
   Menu,
   Search,
-  Star,
+  Sparkles,
   Workflow,
   X,
 } from 'lucide-react';
@@ -104,7 +104,7 @@ export function Layout({ children }: { children: ReactNode }) {
             active={pathname.startsWith('/drafts')}
             icon={<Files size={16} />}
           >
-            Drafty
+            Koncepty
           </NavItem>
           <NavItem
             to="/audit"
@@ -135,7 +135,7 @@ export function Layout({ children }: { children: ReactNode }) {
         onClick={() => setAssistantOpen(!assistantOpen)}
         aria-label={assistantOpen ? 'Zavrieť asistenta' : 'Otvoriť asistenta'}
       >
-        <Star size={19} />
+        <Sparkles size={20} fill="currentColor" />
       </button>
       {assistantVisible && (
         <aside className="assistant-drawer">

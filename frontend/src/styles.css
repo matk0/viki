@@ -139,16 +139,11 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 .scenario-children a { position: relative; display: flex; align-items: center; gap: 9px; min-height: 36px; color: #4f4f4f; font-size: 12px; }
 .scenario-children a:hover { color: #1e1e1e; }
 .tree-line { position: absolute; left: -20px; top: 0; width: 12px; height: 16px; border-left: 1px solid #dbdbdb; border-bottom: 1px solid #dbdbdb; border-radius: 0 0 0 5px; }
-.status-badge { display: inline-flex; align-items: center; gap: 6px; width: max-content; padding: 5px 9px; border: 1px solid #cdcdcd; border-radius: 999px; color: #202020; font-size: 10px; font-weight: 800; white-space: nowrap; }
-.status-badge svg { flex: none; }
-.status-badge i { width: 5px; height: 5px; border-radius: 50%; }
+.status-badge { display: inline-flex; align-items: center; width: max-content; padding: 5px 9px; border: 1px solid #cdcdcd; border-radius: 999px; color: #202020; font-size: 10px; font-weight: 800; white-space: nowrap; }
 .status-badge.accepted { border-color: #a7cb68; background: var(--approval-icon-accent); }
-.status-badge.accepted i { background: #202020; }
 .status-badge.rejected { border-color: #d96767; background: var(--rejection-icon-accent); }
-.status-badge.rejected i { background: #202020; }
 .status-badge.draft { border-color: #aaa; background: #f3f3f3; }
 .status-badge.superseded { color: #777; background: #efefef; }
-.status-badge.superseded i { background: #999; }
 
 .checkbox-label, .checkbox-field { display: flex !important; flex-direction: row !important; align-items: center; gap: 7px !important; color: #5f5f5f; font-size: 11px !important; }
 .search-results { display: grid; gap: 7px; }
@@ -210,7 +205,7 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 .review-summary strong { font-size: 13px; font-weight: 800; }
 .review-summary span { color: var(--muted); font-size: 10px; }
 .vote-counts { display: flex; gap: 5px; }
-.vote-counts span { display: flex; align-items: center; gap: 3px; padding: 3px 6px; border-radius: 5px; background: #f3f3f3; }
+.vote-counts span { display: flex; align-items: center; padding: 3px 6px; border-radius: 5px; background: #f3f3f3; }
 .vote-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .approve-button { border: 2px solid #202020; background: #fff; color: #202020; }
 .reject-button { border: 2px solid #202020; background: #ededed; color: #202020; }

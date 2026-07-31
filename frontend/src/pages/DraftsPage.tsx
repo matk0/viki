@@ -12,7 +12,7 @@ export function DraftsPage() {
   useEffect(() => {
     api.draftProposals()
       .then((result) => setProposals(result.proposals))
-      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Drafty sa nepodarilo načítať.'))
+      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Koncepty sa nepodarilo načítať.'))
   }, [])
 
   const pending = useMemo(() => proposals?.filter((proposal) => proposal.status === 'awaiting_approval') ?? [], [proposals])
@@ -20,12 +20,12 @@ export function DraftsPage() {
 
   return <div className="page-container drafts-index-page">
     <header className="page-heading">
-      <div><h1>Drafty</h1><p>Návrhy zmien pripravené viki asistentom na kontrolu a publikovanie.</p></div>
+      <div><h1>Koncepty</h1><p>Návrhy zmien pripravené viki asistentom na kontrolu a publikovanie.</p></div>
     </header>
 
-    {!proposals && !error ? <Spinner label="Načítavam drafty…" />
-      : error ? <EmptyState title="Drafty sa nedajú načítať" body={error} />
-        : proposals?.length === 0 ? <EmptyState icon={<Files />} title="Zatiaľ žiadne drafty" body="V režime Úpravy požiadajte viki asistenta o prípravu zmien." />
+    {!proposals && !error ? <Spinner label="Načítavam koncepty…" />
+      : error ? <EmptyState title="Koncepty sa nedajú načítať" body={error} />
+        : proposals?.length === 0 ? <EmptyState icon={<Files />} title="Zatiaľ žiadne koncepty" body="V režime Úpravy požiadajte viki asistenta o prípravu zmien." />
           : <div className="draft-groups">
             {pending.length > 0 && <DraftGroup title="Čakajú na schválenie" proposals={pending} />}
             {finished.length > 0 && <DraftGroup title="Vybavené" proposals={finished} />}

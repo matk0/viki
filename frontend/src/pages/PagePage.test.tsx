@@ -74,12 +74,17 @@ describe('PagePage revision links', () => {
   })
 
   it('opens the exact current revision named by an assistant citation', async () => {
-    render(<Router><PagePage pageId="page-1" /></Router>)
+    const { container } = render(<Router><PagePage pageId="page-1" /></Router>)
 
     const heading = await screen.findByRole('heading', { name: 'Presný koncept' })
     expect(heading.closest('.document-title-main')?.querySelector('.document-icon')).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Upraviť' }).matches('.document-header > .document-edit-button')).toBe(true)
     expect(screen.getByRole('tab', { name: 'Koncept #2' })).toHaveAttribute('aria-selected', 'true')
+    const voteBadges = container.querySelectorAll('.vote-counts span')
+    expect(voteBadges).toHaveLength(2)
+    expect(voteBadges[0]).toHaveTextContent('Súhlas: 0')
+    expect(voteBadges[1]).toHaveTextContent('Nesúhlas: 0')
+    for (const badge of voteBadges) expect(badge.querySelector('svg')).toBeNull()
   })
 
   it('does not expose illustrative metadata in the page or editor', async () => {
