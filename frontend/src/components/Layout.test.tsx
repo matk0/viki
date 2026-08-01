@@ -93,6 +93,14 @@ it('uses Koncepty for concepts and Drafty for drafts', () => {
   expect(screen.getByRole('link', { name: 'Drafty' })).toHaveAttribute('href', '/drafts')
 })
 
+it('places the language switch beside the viki wordmark in the sidebar header', () => {
+  const view = renderLayout()
+
+  const header = view.container.querySelector('.sidebar-brand')
+  expect(header).toContainElement(screen.getByRole('link', { name: 'viki' }))
+  expect(header).toContainElement(screen.getByRole('switch', { name: 'Jazyk' }))
+})
+
 it('navigates to features and switches the complete navigation to English', async () => {
   const user = userEvent.setup()
   renderLayout()

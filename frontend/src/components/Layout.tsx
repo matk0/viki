@@ -82,6 +82,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <Link to="/concepts" className="wordmark">
             viki
           </Link>
+          <LanguageSwitcher className="sidebar-language" />
           <button
             className="icon-button mobile-only"
             onClick={() => setMobileOpen(false)}
@@ -129,7 +130,6 @@ export function Layout({ children }: { children: ReactNode }) {
             {t('nav.audit')}
           </NavItem>
         </nav>
-        <LanguageSwitcher className="sidebar-language" />
         <div className="sidebar-user">
           <div className="avatar">{user?.displayName.slice(0, 1)}</div>
           <div>
