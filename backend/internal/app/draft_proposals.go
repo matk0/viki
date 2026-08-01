@@ -12,6 +12,12 @@ type rejectDraftProposalInput struct {
 	Reason string `json:"reason"`
 }
 
+type reviewDraftProposalOperationInput struct {
+	Value              model.AssistantOperationReviewValue `json:"value"`
+	Reason             string                              `json:"reason"`
+	CascadeDescendants bool                                `json:"cascadeDescendants"`
+}
+
 func (s *Server) listDraftProposals(w http.ResponseWriter, request *http.Request, auth authState) {
 	proposals, err := s.repository.ListAssistantDraftProposals(request.Context(), auth.Session.OrganizationID, auth.Session.User.ID)
 	if err != nil {
@@ -45,6 +51,51 @@ func (s *Server) approveDraftProposal(w http.ResponseWriter, request *http.Reque
 		return
 	}
 	s.publishProposalEvent(proposal, "draft_published")
+	writeJSON(w, http.StatusOK, proposal)
+}
+
+func (s *Server) reviewDraftProposalOperation(w http.ResponseWriter, request *http.Request, auth authState) {
+	proposalID, ok := requirePathID(w, request, "proposalID")
+	if !ok {
+		return
+	}
+	operationKey, ok := requirePathID(w, request, "operationKey")
+	if !ok {
+		return
+	}
+	var input reviewDraftProposalOperationInput
+	if !decodeJSON(w, request, &input) {
+		return
+	}
+	input.Reason = strings.TrimSpace(input.Reason)
+	if input.Value != model.AssistantReviewApprove && input.Value != model.AssistantReviewReject {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_operation_review", "Rozhodnutie nie je platné.")
+		return
+	}
+	if input.Value == model.AssistantReviewReject && (input.Reason == "" || len([]rune(input.Reason)) > 2000) {
+		s.handleError(w, governance.ErrRejectionReasonRequired)
+		return
+	}
+	proposal, err := s.repository.ReviewAssistantDraftProposalOperation(
+		request.Context(),
+		auth.Session.OrganizationID,
+		auth.Session.User.ID,
+		proposalID,
+		operationKey,
+		input.Value,
+		input.Reason,
+		input.CascadeDescendants,
+	)
+	if err != nil {
+		s.handleError(w, err)
+		return
+	}
+	switch proposal.Status {
+	case model.AssistantProposalPublished:
+		s.publishProposalEvent(proposal, "draft_published")
+	case model.AssistantProposalDiscarded:
+		s.publishProposalEvent(proposal, "draft_discarded")
+	}
 	writeJSON(w, http.StatusOK, proposal)
 }
 

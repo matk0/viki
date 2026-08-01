@@ -19,7 +19,7 @@ const pageSelect = `
 	SELECT
 		p.id::text,
 		p.kind,
-		p.primitive_kind,
+		p.concept_kind,
 		p.parent_id::text,
 		p.slug,
 		COALESCE(dr.title, ar.title, p.slug),
@@ -38,11 +38,11 @@ const pageSelect = `
 func scanPage(row scanner) (model.Page, error) {
 	var page model.Page
 	var kind string
-	var primitiveKind *string
+	var conceptKind *string
 	if err := row.Scan(
 		&page.ID,
 		&kind,
-		&primitiveKind,
+		&conceptKind,
 		&page.ParentID,
 		&page.Slug,
 		&page.Title,
@@ -57,9 +57,9 @@ func scanPage(row scanner) (model.Page, error) {
 		return model.Page{}, err
 	}
 	page.Kind = model.PageKind(kind)
-	if primitiveKind != nil {
-		value := model.PrimitiveKind(*primitiveKind)
-		page.PrimitiveKind = &value
+	if conceptKind != nil {
+		value := model.ConceptKind(*conceptKind)
+		page.ConceptKind = &value
 	}
 	return page, nil
 }
@@ -71,7 +71,7 @@ func (r *Repository) ListPages(ctx context.Context, organizationID string, kind 
 		query += ` AND p.kind = $2`
 		args = append(args, string(*kind))
 	}
-	query += ` ORDER BY CASE p.kind WHEN 'scenario' THEN 1 WHEN 'subscenario' THEN 2 ELSE 3 END, lower(COALESCE(dr.title, ar.title, p.slug))`
+	query += ` ORDER BY CASE p.kind WHEN 'feature' THEN 1 WHEN 'scenario' THEN 2 ELSE 3 END, lower(COALESCE(dr.title, ar.title, p.slug))`
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list pages: %w", err)
@@ -113,7 +113,7 @@ func (r *Repository) SearchPages(ctx context.Context, organizationID string, opt
 			JOIN revisions r ON r.id = p.accepted_revision_id OR ($3 AND r.id = p.latest_draft_revision_id)
 			WHERE p.organization_id = $1 %s
 		)
-		SELECT id::text, kind, primitive_kind, parent_id::text, slug, title,
+		SELECT id::text, kind, concept_kind, parent_id::text, slug, title,
 			accepted_revision_id::text, latest_draft_revision_id::text,
 			(accepted_revision_id IS NOT NULL), (latest_draft_revision_id IS NOT NULL),
 			(SELECT count(*) FROM comments c WHERE c.page_id = eligible.id AND c.blocking AND c.resolved_at IS NULL),
@@ -134,11 +134,11 @@ func (r *Repository) SearchPages(ctx context.Context, organizationID string, opt
 	for rows.Next() {
 		var result model.SearchResult
 		var kind string
-		var primitiveKind *string
+		var conceptKind *string
 		if err := rows.Scan(
 			&result.Page.ID,
 			&kind,
-			&primitiveKind,
+			&conceptKind,
 			&result.Page.ParentID,
 			&result.Page.Slug,
 			&result.Page.Title,
@@ -157,9 +157,9 @@ func (r *Repository) SearchPages(ctx context.Context, organizationID string, opt
 			return nil, fmt.Errorf("scan search result: %w", err)
 		}
 		result.Page.Kind = model.PageKind(kind)
-		if primitiveKind != nil {
-			value := model.PrimitiveKind(*primitiveKind)
-			result.Page.PrimitiveKind = &value
+		if conceptKind != nil {
+			value := model.ConceptKind(*conceptKind)
+			result.Page.ConceptKind = &value
 		}
 		results = append(results, result)
 	}
@@ -198,7 +198,7 @@ func (r *Repository) PageDetail(ctx context.Context, organizationID, pageID stri
 	if detail.Votes, err = r.listVotes(ctx, organizationID, pageID); err != nil {
 		return model.PageDetail{}, err
 	}
-	if page.Kind == model.PageScenario {
+	if page.Kind == model.PageFeature {
 		rows, err := r.pool.Query(ctx, pageSelect+` WHERE p.organization_id = $1 AND p.parent_id = $2 ORDER BY p.created_at`, organizationID, pageID)
 		if err != nil {
 			return model.PageDetail{}, err

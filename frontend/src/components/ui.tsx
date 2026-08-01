@@ -2,9 +2,11 @@ import { Children, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Page, RevisionStatus } from '../api/types'
+import { translate, useI18n, type Locale } from '../i18n'
 
-export function Spinner({ label = 'Načítavam…' }: { label?: string }) {
-  return <div className="loading-state"><span className="spinner" /><span>{label}</span></div>
+export function Spinner({ label }: { label?: string }) {
+  const { t } = useI18n()
+  return <div className="loading-state"><span className="spinner" /><span>{label ?? t('common.loading')}</span></div>
 }
 
 export function EmptyState({ icon, title, body, action }: { icon?: ReactNode; title: string; body: string; action?: ReactNode }) {
@@ -12,8 +14,9 @@ export function EmptyState({ icon, title, body, action }: { icon?: ReactNode; ti
 }
 
 export function StatusBadge({ status, page }: { status?: RevisionStatus; page?: Page }) {
+  const { t } = useI18n()
   const resolved: RevisionStatus | 'rejected' = status ?? ((page?.unresolvedRejections ?? 0) > 0 ? 'rejected' : page?.hasDraft ? 'draft' : page?.accepted ? 'accepted' : 'draft')
-  const label = resolved === 'accepted' ? 'Publikované' : resolved === 'rejected' ? 'Odmietnuté' : resolved === 'superseded' ? 'Nahradené' : 'Koncept'
+  const label = resolved === 'accepted' ? t('status.accepted') : resolved === 'rejected' ? t('status.rejected') : resolved === 'superseded' ? t('status.superseded') : t('status.draft')
   return <span className={`status-badge ${resolved}`}>{label}</span>
 }
 
@@ -65,24 +68,35 @@ function inflectedTermPattern(label: string): RegExp {
   const fragments = words.map((word) => {
     const lower = word.toLocaleLowerCase('sk-SK')
     const stem = lower.length >= 5 && /[aáäeéiíoóuúyý]$/u.test(lower) ? lower.slice(0, -1) : lower
-    return `${escapeRegExp(stem)}[\\p{L}\\p{M}]*`
+    return `${accentInsensitivePattern(stem)}[\\p{L}\\p{M}]*`
   })
   return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_])${fragments.join('[\\s-]+')}(?![\\p{L}\\p{M}\\p{N}_])`, 'iu')
+}
+
+function accentInsensitivePattern(value: string): string {
+  const variants: Record<string, string> = {
+    a: 'aáä', c: 'cč', d: 'dď', e: 'eé', i: 'ií', l: 'lĺľ', n: 'nň',
+    o: 'oóô', r: 'rŕ', s: 'sš', t: 'tť', u: 'uú', y: 'yý', z: 'zž',
+  }
+  return [...value].map((character) => {
+    const base = character.normalize('NFD').replace(/\p{M}/gu, '')
+    return variants[base] ? `[${variants[base]}]` : escapeRegExp(character)
+  }).join('')
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-export function formatDate(value: string, includeTime = true): string {
-  return new Intl.DateTimeFormat('sk-SK', {
+export function formatDate(value: string, includeTime = true, locale: Locale = 'sk'): string {
+  return new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : 'sk-SK', {
     day: 'numeric', month: 'short', year: 'numeric',
     ...(includeTime ? { hour: '2-digit', minute: '2-digit' } : {}),
   }).format(new Date(value))
 }
 
-export function kindLabel(page: Pick<Page, 'kind' | 'primitiveKind'>): string {
-  if (page.kind === 'scenario') return 'Scenár'
-  if (page.kind === 'subscenario') return 'Podscenár'
-  return 'Pojem'
+export function kindLabel(page: Pick<Page, 'kind' | 'conceptKind'>, locale: Locale = 'sk'): string {
+  if (page.kind === 'feature') return translate(locale, 'kind.feature')
+  if (page.kind === 'scenario') return translate(locale, 'kind.scenario')
+  return translate(locale, 'kind.concept')
 }

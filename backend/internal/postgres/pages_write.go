@@ -16,24 +16,24 @@ import (
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-func validatePageInput(kind model.PageKind, primitiveKind *model.PrimitiveKind, parentID *string, content model.RevisionContent) error {
+func validatePageInput(kind model.PageKind, conceptKind *model.ConceptKind, parentID *string, content model.RevisionContent) error {
 	if strings.TrimSpace(content.Title) == "" {
 		return fmt.Errorf("title is required")
 	}
 	switch kind {
-	case model.PagePrimitive:
-		if primitiveKind == nil || (*primitiveKind != model.PrimitiveNoun && *primitiveKind != model.PrimitiveVerb) || parentID != nil {
+	case model.PageConcept:
+		if conceptKind == nil || (*conceptKind != model.ConceptNoun && *conceptKind != model.ConceptVerb) || parentID != nil {
 			return store.ErrInvalidHierarchy
 		}
 		if len(content.Steps) != 0 {
-			return fmt.Errorf("primitive cannot contain BDD steps")
+			return fmt.Errorf("concept cannot contain BDD steps")
 		}
-	case model.PageScenario:
-		if primitiveKind != nil || parentID != nil || len(content.Steps) != 0 {
+	case model.PageFeature:
+		if conceptKind != nil || parentID != nil || len(content.Steps) != 0 {
 			return store.ErrInvalidHierarchy
 		}
-	case model.PageSubscenario:
-		if primitiveKind != nil || parentID == nil {
+	case model.PageScenario:
+		if conceptKind != nil || parentID == nil {
 			return store.ErrInvalidHierarchy
 		}
 		if err := validateBDDSteps(content.Steps); err != nil {
@@ -47,7 +47,7 @@ func validatePageInput(kind model.PageKind, primitiveKind *model.PrimitiveKind, 
 
 func validateBDDSteps(steps []model.Step) error {
 	if len(steps) < 3 {
-		return fmt.Errorf("subscenario requires Given, When and Then steps")
+		return fmt.Errorf("scenario requires Given, When and Then steps")
 	}
 	phase := 0
 	hasGiven, hasWhen, hasThen := false, false, false
@@ -83,7 +83,7 @@ func validateBDDSteps(steps []model.Step) error {
 		}
 	}
 	if !hasGiven || !hasWhen || !hasThen {
-		return fmt.Errorf("subscenario requires Given, When and Then steps")
+		return fmt.Errorf("scenario requires Given, When and Then steps")
 	}
 	return nil
 }
@@ -95,7 +95,7 @@ func (r *Repository) CreatePage(ctx context.Context, organizationID, userID stri
 	if status != model.RevisionDraft && status != model.RevisionAccepted {
 		return model.PageDetail{}, fmt.Errorf("invalid initial revision status")
 	}
-	if err := validatePageInput(input.Kind, input.PrimitiveKind, input.ParentID, input.Content); err != nil {
+	if err := validatePageInput(input.Kind, input.ConceptKind, input.ParentID, input.Content); err != nil {
 		return model.PageDetail{}, err
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -107,15 +107,15 @@ func (r *Repository) CreatePage(ctx context.Context, organizationID, userID stri
 		return model.PageDetail{}, err
 	}
 	var pageID string
-	var primitiveKind any
-	if input.PrimitiveKind != nil {
-		primitiveKind = string(*input.PrimitiveKind)
+	var conceptKind any
+	if input.ConceptKind != nil {
+		conceptKind = string(*input.ConceptKind)
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO pages(organization_id, kind, primitive_kind, parent_id, slug, created_by)
+		INSERT INTO pages(organization_id, kind, concept_kind, parent_id, slug, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id::text
-	`, organizationID, string(input.Kind), primitiveKind, input.ParentID, input.Slug, userID).Scan(&pageID); err != nil {
+	`, organizationID, string(input.Kind), conceptKind, input.ParentID, input.Slug, userID).Scan(&pageID); err != nil {
 		if strings.Contains(err.Error(), "pages_organization_id_slug_key") {
 			return model.PageDetail{}, store.ErrDuplicateSlug
 		}
@@ -149,13 +149,13 @@ func (r *Repository) SaveRevision(ctx context.Context, organizationID, userID, p
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var kind string
-	var primitiveKind *string
+	var conceptKind *string
 	var parentID *string
 	var acceptedID, draftID *string
 	err = tx.QueryRow(ctx, `
-		SELECT kind, primitive_kind, parent_id::text, accepted_revision_id::text, latest_draft_revision_id::text
+		SELECT kind, concept_kind, parent_id::text, accepted_revision_id::text, latest_draft_revision_id::text
 		FROM pages WHERE organization_id = $1 AND id = $2 FOR UPDATE
-	`, organizationID, pageID).Scan(&kind, &primitiveKind, &parentID, &acceptedID, &draftID)
+	`, organizationID, pageID).Scan(&kind, &conceptKind, &parentID, &acceptedID, &draftID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Revision{}, store.ErrNotFound
 	}
@@ -171,12 +171,12 @@ func (r *Repository) SaveRevision(ctx context.Context, organizationID, userID, p
 	if currentID == nil || *currentID != input.BaseRevisionID {
 		return model.Revision{}, store.ErrConflict
 	}
-	var primitive *model.PrimitiveKind
-	if primitiveKind != nil {
-		value := model.PrimitiveKind(*primitiveKind)
-		primitive = &value
+	var concept *model.ConceptKind
+	if conceptKind != nil {
+		value := model.ConceptKind(*conceptKind)
+		concept = &value
 	}
-	if err := validatePageInput(model.PageKind(kind), primitive, parentID, input.Content); err != nil {
+	if err := validatePageInput(model.PageKind(kind), concept, parentID, input.Content); err != nil {
 		return model.Revision{}, err
 	}
 	var nextNumber int
@@ -206,14 +206,14 @@ func (r *Repository) SaveRevision(ctx context.Context, organizationID, userID, p
 }
 
 func validateParent(ctx context.Context, tx pgx.Tx, organizationID string, kind model.PageKind, parentID *string) error {
-	if kind != model.PageSubscenario {
+	if kind != model.PageScenario {
 		return nil
 	}
 	var parentKind string
 	if err := tx.QueryRow(ctx, `SELECT kind FROM pages WHERE id = $1 AND organization_id = $2`, *parentID, organizationID).Scan(&parentKind); err != nil {
 		return store.ErrInvalidHierarchy
 	}
-	if parentKind != string(model.PageScenario) {
+	if parentKind != string(model.PageFeature) {
 		return store.ErrInvalidHierarchy
 	}
 	return nil

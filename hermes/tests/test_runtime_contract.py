@@ -13,8 +13,9 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("Kontrola slovníka", soul)
         self.assertIn("zákazník chce podpísať zmluvu", soul)
         self.assertIn("targetClientKey", soul)
-        self.assertIn("Každý pojem použitý v scenári", soul)
-        self.assertIn("Scenár nesmie obsahovať BDD kroky", soul)
+        self.assertIn("Každý koncept použitý v scenári", soul)
+        self.assertIn("Funkcia nesmie obsahovať BDD kroky", soul)
+        self.assertIn("mapuj ich 1:1 na Gherkin", soul)
 
     def test_image_is_pinned_and_runs_two_loopback_only_supervised_profiles(self):
         dockerfile = (HERMES_ROOT / "Dockerfile").read_text()

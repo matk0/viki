@@ -17,6 +17,8 @@ import (
 	"viki/internal/store"
 )
 
+var assistantKeepaliveInterval = 15 * time.Second
+
 func (s *Server) assistantStatus(w http.ResponseWriter, _ *http.Request, _ authState) {
 	status := s.assistant.status()
 	profile := func(mode model.AssistantMode) map[string]any {
@@ -51,12 +53,10 @@ func (s *Server) listAssistantConversations(w http.ResponseWriter, request *http
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			select {
-			case semaphore <- struct{}{}:
-				defer func() { <-semaphore }()
-			case <-request.Context().Done():
+			if !acquireAssistantHistorySlot(request.Context(), semaphore) {
 				return
 			}
+			defer func() { <-semaphore }()
 			ctx, cancel := context.WithTimeout(request.Context(), 5*time.Second)
 			defer cancel()
 			if err := s.loadAssistantHistory(ctx, &conversations[index]); err != nil && !errors.Is(err, hermes.ErrUnavailable) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -68,6 +68,15 @@ func (s *Server) listAssistantConversations(w http.ResponseWriter, request *http
 	}
 	wait.Wait()
 	writeJSON(w, http.StatusOK, map[string]any{"conversations": conversations})
+}
+
+func acquireAssistantHistorySlot(ctx context.Context, semaphore chan<- struct{}) bool {
+	select {
+	case semaphore <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (s *Server) createAssistantConversation(w http.ResponseWriter, request *http.Request, auth authState) {
@@ -210,7 +219,7 @@ func (s *Server) streamAssistantEvents(w http.ResponseWriter, request *http.Requ
 		}
 	}
 	flusher.Flush()
-	keepalive := time.NewTicker(15 * time.Second)
+	keepalive := time.NewTicker(assistantKeepaliveInterval)
 	defer keepalive.Stop()
 	for {
 		select {
@@ -380,7 +389,7 @@ func attachDraftReceipts(messages []model.AssistantMessage, receipts map[string]
 			if message.Role == "user" && strings.HasPrefix(message.ID, turnID+"-") {
 				messages = append(messages, model.AssistantMessage{
 					ID: turnID + "-assistant-receipt", Role: "assistant", Mode: message.Mode,
-					Content: "Vytvoril som koncepty vo viki.", Citations: []model.Citation{},
+					Content: "Vytvoril som drafty vo viki.", Citations: []model.Citation{},
 					Drafts: append([]model.AssistantDraftReceipt(nil), values...), CreatedAt: message.CreatedAt.Add(time.Nanosecond),
 				})
 				break

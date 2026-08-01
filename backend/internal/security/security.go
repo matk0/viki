@@ -20,9 +20,11 @@ const (
 	tokenLength      = 32
 )
 
+var readRandom = rand.Read
+
 func HashPassword(password string) (string, error) {
 	salt := make([]byte, argonSaltLength)
-	if _, err := rand.Read(salt); err != nil {
+	if _, err := readRandom(salt); err != nil {
 		return "", fmt.Errorf("generate password salt: %w", err)
 	}
 	key := argon2.IDKey([]byte(password), salt, argonIterations, argonMemory, argonParallelism, argonKeyLength)
@@ -60,7 +62,7 @@ func VerifyPassword(encoded, password string) bool {
 
 func NewOpaqueToken() (string, []byte, error) {
 	raw := make([]byte, tokenLength)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := readRandom(raw); err != nil {
 		return "", nil, fmt.Errorf("generate opaque token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)

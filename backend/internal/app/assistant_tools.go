@@ -53,8 +53,6 @@ func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) 
 		s.handleHermesGetRevision(w, request, conversation)
 	case "propose_viki_changeset":
 		s.handleHermesProposeChanges(w, request, conversation, turn)
-	default:
-		writeError(w, http.StatusForbidden, "tool_not_allowed", "Tool is not allowed for this Hermes profile.")
 	}
 }
 

@@ -410,6 +410,27 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /api/v1/draft-proposals/{proposalId}/operations/{operationKey}/review:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+      - $ref: "#/components/parameters/OperationKey"
+    post:
+      tags: [assistant]
+      operationId: reviewDraftProposalOperation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReviewDraftProposalOperationInput" }
+      responses:
+        "200":
+          description: The operation review was saved. The approved subset is atomically published after every operation has been reviewed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /api/v1/draft-proposals/{proposalId}/discard:
     parameters:
       - $ref: "#/components/parameters/ProposalId"
@@ -466,6 +487,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    OperationKey:
+      name: operationKey
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
   responses:
     Error:
       description: Request error.
@@ -487,8 +513,8 @@ components:
       enum: [ok]
     PageKind:
       type: string
-      enum: [primitive, scenario, subscenario]
-    PrimitiveKind:
+      enum: [concept, feature, scenario]
+    ConceptKind:
       type: string
       enum: [noun, verb]
     RevisionStatus:
@@ -523,7 +549,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         kind: { $ref: "#/components/schemas/PageKind" }
-        primitiveKind: { $ref: "#/components/schemas/PrimitiveKind" }
+        conceptKind: { $ref: "#/components/schemas/ConceptKind" }
         parentId: { type: string, format: uuid }
         slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
         title: { type: string }
@@ -640,6 +666,31 @@ components:
     AssistantDraftProposalStatus:
       type: string
       enum: [awaiting_approval, published, discarded]
+    AssistantOperationReviewValue:
+      type: string
+      enum: [approve, reject]
+    AssistantOperationReview:
+      type: object
+      additionalProperties: false
+      required: [operationKey, value, reviewedAt]
+      properties:
+        operationKey: { type: string }
+        value: { $ref: "#/components/schemas/AssistantOperationReviewValue" }
+        reason: { type: string }
+        reviewedAt: { type: string, format: date-time }
+    ReviewDraftProposalOperationInput:
+      type: object
+      additionalProperties: false
+      required: [value]
+      properties:
+        value: { $ref: "#/components/schemas/AssistantOperationReviewValue" }
+        reason:
+          type: string
+          maxLength: 2000
+        cascadeDescendants:
+          type: boolean
+          default: false
+          description: Apply the same decision atomically to child scenarios and newly proposed terms referenced by the selected feature tree.
     RejectDraftProposalInput:
       type: object
       additionalProperties: false
@@ -658,20 +709,21 @@ components:
         pageId: { type: string, format: uuid }
         baseRevisionId: { type: string, format: uuid }
         kind: { $ref: "#/components/schemas/PageKind" }
-        primitiveKind: { $ref: "#/components/schemas/PrimitiveKind" }
+        conceptKind: { $ref: "#/components/schemas/ConceptKind" }
         parentId: { type: string, format: uuid }
         parentClientKey: { type: string }
         slug: { type: string }
         content: { $ref: "#/components/schemas/RevisionContent" }
     AssistantDraftProposal:
       type: object
-      required: [id, conversationId, turnId, summary, operations, status, publishedRevisions, createdAt, updatedAt]
+      required: [id, conversationId, turnId, summary, operations, operationReviews, status, publishedRevisions, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         conversationId: { type: string, format: uuid }
         turnId: { type: string, format: uuid }
         summary: { type: string }
         operations: { type: array, items: { $ref: "#/components/schemas/AssistantChangeOperation" } }
+        operationReviews: { type: array, items: { $ref: "#/components/schemas/AssistantOperationReview" } }
         status: { $ref: "#/components/schemas/AssistantDraftProposalStatus" }
         rejectionReason: { type: string }
         publishedRevisions: { type: array, items: { $ref: "#/components/schemas/Revision" } }
@@ -798,7 +850,7 @@ components:
       required: [kind, slug, content]
       properties:
         kind: { $ref: "#/components/schemas/PageKind" }
-        primitiveKind: { $ref: "#/components/schemas/PrimitiveKind" }
+        conceptKind: { $ref: "#/components/schemas/ConceptKind" }
         parentId: { type: string, format: uuid }
         slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
         content: { $ref: "#/components/schemas/RevisionContent" }

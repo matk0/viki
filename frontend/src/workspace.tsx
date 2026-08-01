@@ -8,8 +8,8 @@ interface WorkspaceValue {
   reloadPages: () => Promise<void>
   assistantOpen: boolean
   setAssistantOpen: (open: boolean) => void
-  newPageKind: 'primitive' | 'scenario' | null
-  openNewPage: (kind: 'primitive' | 'scenario') => void
+  newPageKind: 'concept' | 'feature' | null
+  openNewPage: (kind: 'concept' | 'feature') => void
   closeNewPage: () => void
 }
 
@@ -19,13 +19,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [pages, setPages] = useState<Page[]>([])
   const [loadingPages, setLoadingPages] = useState(true)
   const [assistantOpen, setAssistantOpen] = useState(false)
-  const [newPageKind, setNewPageKind] = useState<'primitive' | 'scenario' | null>(null)
-  const openNewPage = useCallback((kind: 'primitive' | 'scenario') => setNewPageKind(kind), [])
+  const [newPageKind, setNewPageKind] = useState<'concept' | 'feature' | null>(null)
+  const openNewPage = useCallback((kind: 'concept' | 'feature') => setNewPageKind(kind), [])
   const closeNewPage = useCallback(() => setNewPageKind(null), [])
   const reloadPages = useCallback(async () => {
     try {
       const result = await api.pages()
       setPages(result.pages)
+    } catch {
+      return
     } finally {
       setLoadingPages(false)
     }

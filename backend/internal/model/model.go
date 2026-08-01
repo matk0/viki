@@ -5,16 +5,16 @@ import "time"
 type PageKind string
 
 const (
-	PagePrimitive   PageKind = "primitive"
-	PageScenario    PageKind = "scenario"
-	PageSubscenario PageKind = "subscenario"
+	PageConcept  PageKind = "concept"
+	PageFeature  PageKind = "feature"
+	PageScenario PageKind = "scenario"
 )
 
-type PrimitiveKind string
+type ConceptKind string
 
 const (
-	PrimitiveNoun PrimitiveKind = "noun"
-	PrimitiveVerb PrimitiveKind = "verb"
+	ConceptNoun ConceptKind = "noun"
+	ConceptVerb ConceptKind = "verb"
 )
 
 type RevisionStatus string
@@ -57,19 +57,19 @@ type Session struct {
 }
 
 type Page struct {
-	ID                    string         `json:"id"`
-	Kind                  PageKind       `json:"kind"`
-	PrimitiveKind         *PrimitiveKind `json:"primitiveKind,omitempty"`
-	ParentID              *string        `json:"parentId,omitempty"`
-	Slug                  string         `json:"slug"`
-	Title                 string         `json:"title"`
-	AcceptedRevisionID    *string        `json:"acceptedRevisionId,omitempty"`
-	LatestDraftRevisionID *string        `json:"latestDraftRevisionId,omitempty"`
-	Accepted              bool           `json:"accepted"`
-	HasDraft              bool           `json:"hasDraft"`
-	UnresolvedRejections  int            `json:"unresolvedRejections"`
-	CreatedAt             time.Time      `json:"createdAt"`
-	UpdatedAt             time.Time      `json:"updatedAt"`
+	ID                    string       `json:"id"`
+	Kind                  PageKind     `json:"kind"`
+	ConceptKind           *ConceptKind `json:"conceptKind,omitempty"`
+	ParentID              *string      `json:"parentId,omitempty"`
+	Slug                  string       `json:"slug"`
+	Title                 string       `json:"title"`
+	AcceptedRevisionID    *string      `json:"acceptedRevisionId,omitempty"`
+	LatestDraftRevisionID *string      `json:"latestDraftRevisionId,omitempty"`
+	Accepted              bool         `json:"accepted"`
+	HasDraft              bool         `json:"hasDraft"`
+	UnresolvedRejections  int          `json:"unresolvedRejections"`
+	CreatedAt             time.Time    `json:"createdAt"`
+	UpdatedAt             time.Time    `json:"updatedAt"`
 }
 
 type Step struct {
@@ -156,11 +156,11 @@ type RevisionContent struct {
 }
 
 type CreatePageInput struct {
-	Kind          PageKind        `json:"kind"`
-	PrimitiveKind *PrimitiveKind  `json:"primitiveKind,omitempty"`
-	ParentID      *string         `json:"parentId,omitempty"`
-	Slug          string          `json:"slug"`
-	Content       RevisionContent `json:"content"`
+	Kind        PageKind        `json:"kind"`
+	ConceptKind *ConceptKind    `json:"conceptKind,omitempty"`
+	ParentID    *string         `json:"parentId,omitempty"`
+	Slug        string          `json:"slug"`
+	Content     RevisionContent `json:"content"`
 }
 
 type SaveRevisionInput struct {
@@ -264,7 +264,7 @@ type AIChangeOperation struct {
 	PageID          *string         `json:"pageId,omitempty"`
 	BaseRevisionID  *string         `json:"baseRevisionId,omitempty"`
 	Kind            PageKind        `json:"kind"`
-	PrimitiveKind   *PrimitiveKind  `json:"primitiveKind,omitempty"`
+	ConceptKind     *ConceptKind    `json:"conceptKind,omitempty"`
 	ParentID        *string         `json:"parentId,omitempty"`
 	ParentClientKey string          `json:"parentClientKey,omitempty"`
 	Slug            string          `json:"slug"`
@@ -292,12 +292,27 @@ const (
 	AssistantProposalDiscarded        AssistantDraftProposalStatus = "discarded"
 )
 
+type AssistantOperationReviewValue string
+
+const (
+	AssistantReviewApprove AssistantOperationReviewValue = "approve"
+	AssistantReviewReject  AssistantOperationReviewValue = "reject"
+)
+
+type AssistantOperationReview struct {
+	OperationKey string                        `json:"operationKey"`
+	Value        AssistantOperationReviewValue `json:"value"`
+	Reason       string                        `json:"reason,omitempty"`
+	ReviewedAt   time.Time                     `json:"reviewedAt"`
+}
+
 type AssistantDraftProposal struct {
 	ID                 string                       `json:"id"`
 	ConversationID     string                       `json:"conversationId"`
 	TurnID             string                       `json:"turnId"`
 	Summary            string                       `json:"summary"`
 	Operations         []AIChangeOperation          `json:"operations"`
+	OperationReviews   []AssistantOperationReview   `json:"operationReviews"`
 	Status             AssistantDraftProposalStatus `json:"status"`
 	RejectionReason    string                       `json:"rejectionReason,omitempty"`
 	PublishedRevisions []Revision                   `json:"publishedRevisions"`

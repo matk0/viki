@@ -415,6 +415,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/draft-proposals/{proposalId}/operations/{operationKey}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposalId: components["parameters"]["ProposalId"];
+                operationKey: components["parameters"]["OperationKey"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reviewDraftProposalOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/draft-proposals/{proposalId}/discard": {
         parameters: {
             query?: never;
@@ -440,9 +459,9 @@ export interface components {
         /** @enum {string} */
         HealthStatus: "ok";
         /** @enum {string} */
-        PageKind: "primitive" | "scenario" | "subscenario";
+        PageKind: "concept" | "feature" | "scenario";
         /** @enum {string} */
-        PrimitiveKind: "noun" | "verb";
+        ConceptKind: "noun" | "verb";
         /** @enum {string} */
         RevisionStatus: "draft" | "accepted" | "superseded";
         /** @enum {string} */
@@ -468,7 +487,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             kind: components["schemas"]["PageKind"];
-            primitiveKind?: components["schemas"]["PrimitiveKind"];
+            conceptKind?: components["schemas"]["ConceptKind"];
             /** Format: uuid */
             parentId?: string;
             slug: string;
@@ -592,6 +611,24 @@ export interface components {
         };
         /** @enum {string} */
         AssistantDraftProposalStatus: "awaiting_approval" | "published" | "discarded";
+        /** @enum {string} */
+        AssistantOperationReviewValue: "approve" | "reject";
+        AssistantOperationReview: {
+            operationKey: string;
+            value: components["schemas"]["AssistantOperationReviewValue"];
+            reason?: string;
+            /** Format: date-time */
+            reviewedAt: string;
+        };
+        ReviewDraftProposalOperationInput: {
+            value: components["schemas"]["AssistantOperationReviewValue"];
+            reason?: string;
+            /**
+             * @description Apply the same decision atomically to child scenarios and newly proposed terms referenced by the selected feature tree.
+             * @default false
+             */
+            cascadeDescendants: boolean;
+        };
         RejectDraftProposalInput: {
             reason: string;
         };
@@ -604,7 +641,7 @@ export interface components {
             /** Format: uuid */
             baseRevisionId?: string;
             kind: components["schemas"]["PageKind"];
-            primitiveKind?: components["schemas"]["PrimitiveKind"];
+            conceptKind?: components["schemas"]["ConceptKind"];
             /** Format: uuid */
             parentId?: string;
             parentClientKey?: string;
@@ -620,6 +657,7 @@ export interface components {
             turnId: string;
             summary: string;
             operations: components["schemas"]["AssistantChangeOperation"][];
+            operationReviews: components["schemas"]["AssistantOperationReview"][];
             status: components["schemas"]["AssistantDraftProposalStatus"];
             rejectionReason?: string;
             publishedRevisions: components["schemas"]["Revision"][];
@@ -725,7 +763,7 @@ export interface components {
         };
         CreatePageRequest: {
             kind: components["schemas"]["PageKind"];
-            primitiveKind?: components["schemas"]["PrimitiveKind"];
+            conceptKind?: components["schemas"]["ConceptKind"];
             /** Format: uuid */
             parentId?: string;
             slug: string;
@@ -788,6 +826,7 @@ export interface components {
         ConversationId: string;
         ClarificationRequestId: string;
         ProposalId: string;
+        OperationKey: string;
     };
     requestBodies: never;
     headers: never;
@@ -1421,6 +1460,36 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Proposal atomically published as accepted revisions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantDraftProposal"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    reviewDraftProposalOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposalId: components["parameters"]["ProposalId"];
+                operationKey: components["parameters"]["OperationKey"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewDraftProposalOperationInput"];
+            };
+        };
+        responses: {
+            /** @description The operation review was saved. The approved subset is atomically published after every operation has been reviewed. */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -72,7 +72,6 @@ export function VikiSelect({
   }
 
   const moveFocus = (current: number, delta: number) => {
-    if (options.length === 0) return
     let next = current
     do next = (next + delta + options.length) % options.length
     while (options[next]?.disabled && next !== current)

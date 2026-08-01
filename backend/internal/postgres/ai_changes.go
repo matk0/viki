@@ -72,21 +72,21 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 			if !slugPattern.MatchString(operation.Slug) {
 				return nil, fmt.Errorf("invalid generated slug %q", operation.Slug)
 			}
-			if err := validatePageInput(operation.Kind, operation.PrimitiveKind, operation.ParentID, operation.Content); err != nil {
+			if err := validatePageInput(operation.Kind, operation.ConceptKind, operation.ParentID, operation.Content); err != nil {
 				return nil, err
 			}
 			if err := validateParent(ctx, tx, organizationID, operation.Kind, operation.ParentID); err != nil {
 				return nil, err
 			}
-			var primitiveKind any
-			if operation.PrimitiveKind != nil {
-				primitiveKind = string(*operation.PrimitiveKind)
+			var conceptKind any
+			if operation.ConceptKind != nil {
+				conceptKind = string(*operation.ConceptKind)
 			}
 			var pageID string
 			if err := tx.QueryRow(ctx, `
-				INSERT INTO pages(organization_id, kind, primitive_kind, parent_id, slug, created_by)
+				INSERT INTO pages(organization_id, kind, concept_kind, parent_id, slug, created_by)
 				VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text
-			`, organizationID, string(operation.Kind), primitiveKind, operation.ParentID, operation.Slug, userID).Scan(&pageID); err != nil {
+			`, organizationID, string(operation.Kind), conceptKind, operation.ParentID, operation.Slug, userID).Scan(&pageID); err != nil {
 				if strings.Contains(err.Error(), "pages_organization_id_slug_key") {
 					return nil, store.ErrDuplicateSlug
 				}
@@ -108,19 +108,19 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 				return nil, fmt.Errorf("revise operation requires pageId and baseRevisionId")
 			}
 			var kind, slug string
-			var primitiveKind *string
+			var conceptKind *string
 			var parentID, acceptedID, draftID *string
 			err := tx.QueryRow(ctx, `
-				SELECT kind, primitive_kind, parent_id::text, accepted_revision_id::text, latest_draft_revision_id::text, slug
+				SELECT kind, concept_kind, parent_id::text, accepted_revision_id::text, latest_draft_revision_id::text, slug
 				FROM pages WHERE id = $1 AND organization_id = $2 FOR UPDATE
-			`, *operation.PageID, organizationID).Scan(&kind, &primitiveKind, &parentID, &acceptedID, &draftID, &slug)
+			`, *operation.PageID, organizationID).Scan(&kind, &conceptKind, &parentID, &acceptedID, &draftID, &slug)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, store.ErrNotFound
 			}
 			if err != nil {
 				return nil, err
 			}
-			if string(operation.Kind) != kind || operation.Slug != slug || !primitiveKindMatches(operation.PrimitiveKind, primitiveKind) || !optionalStringMatches(operation.ParentID, parentID) {
+			if string(operation.Kind) != kind || operation.Slug != slug || !conceptKindMatches(operation.ConceptKind, conceptKind) || !optionalStringMatches(operation.ParentID, parentID) {
 				return nil, fmt.Errorf("revise operation immutable page metadata does not match the existing page")
 			}
 			currentID := acceptedID
@@ -135,12 +135,12 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 					return nil, err
 				}
 			}
-			var primitive *model.PrimitiveKind
-			if primitiveKind != nil {
-				value := model.PrimitiveKind(*primitiveKind)
-				primitive = &value
+			var concept *model.ConceptKind
+			if conceptKind != nil {
+				value := model.ConceptKind(*conceptKind)
+				concept = &value
 			}
-			if err := validatePageInput(model.PageKind(kind), primitive, parentID, operation.Content); err != nil {
+			if err := validatePageInput(model.PageKind(kind), concept, parentID, operation.Content); err != nil {
 				return nil, err
 			}
 			var number int
@@ -210,7 +210,7 @@ func (r *Repository) revisionsByID(ctx context.Context, ids []string) ([]model.R
 	return revisions, nil
 }
 
-func primitiveKindMatches(expected *model.PrimitiveKind, actual *string) bool {
+func conceptKindMatches(expected *model.ConceptKind, actual *string) bool {
 	if expected == nil || actual == nil {
 		return expected == nil && actual == nil
 	}

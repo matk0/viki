@@ -88,7 +88,7 @@ func (s *Server) handleError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrUnauthorized):
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Prihlásenie zlyhalo.")
 	case errors.Is(err, store.ErrConflict):
-		writeError(w, http.StatusConflict, "revision_conflict", "Stránku medzitým upravil iný používateľ. Obnovte koncept.")
+		writeError(w, http.StatusConflict, "revision_conflict", "Stránku medzitým upravil iný používateľ. Obnovte draft.")
 	case errors.Is(err, store.ErrDuplicateSlug):
 		writeError(w, http.StatusConflict, "duplicate_slug", "Stránka s touto adresou už existuje.")
 	case errors.Is(err, store.ErrInvalidHierarchy), errors.Is(err, store.ErrInvalidReference):
@@ -99,6 +99,8 @@ func (s *Server) handleError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_vote", "Hlas nie je platný.")
 	case errors.Is(err, governance.ErrUnresolvedRejection):
 		writeError(w, http.StatusConflict, "unresolved_rejection", "Publikovaniu bráni nevyriešené zamietnutie.")
+	case errors.Is(err, governance.ErrRejectedProposalDependency):
+		writeError(w, http.StatusConflict, "rejected_proposal_dependency", "Schválená zmena závisí od odmietnutého konceptu. Odmietnite aj závislú zmenu alebo koncept schváľte.")
 	default:
 		s.logger.Error("request failed", "error", err)
 		writeError(w, http.StatusUnprocessableEntity, "request_failed", userSafeError(err))

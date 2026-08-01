@@ -2,7 +2,10 @@ import json
 import os
 import sys
 import unittest
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 
 
@@ -13,8 +16,8 @@ from viki import history_projection, register, schemas, tools  # noqa: E402
 
 
 class FakeResponse:
-    def __init__(self, payload: dict):
-        self.payload = json.dumps(payload).encode()
+    def __init__(self, payload):
+        self.payload = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
 
     def __enter__(self):
         return self
@@ -80,6 +83,52 @@ class VikiPluginTest(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "missing_runtime_context")
         open_mock.assert_not_called()
 
+    def test_managed_profile_is_derived_from_hermes_home(self):
+        hermes_constants = SimpleNamespace(
+            get_hermes_home=lambda: "/opt/data/profiles/viki-edit"
+        )
+        with patch.dict(sys.modules, {"hermes_constants": hermes_constants}):
+            self.assertEqual(tools._runtime_profile(), "edit")
+
+        hermes_constants.get_hermes_home = lambda: "/opt/data/profiles/unmanaged"
+        with patch.dict(sys.modules, {"hermes_constants": hermes_constants}):
+            with self.assertRaisesRegex(RuntimeError, "not scoped"):
+                tools._runtime_profile()
+
+    def test_tool_rejects_unmanaged_session_and_unsafe_configuration(self):
+        with patch.object(tools, "_runtime_profile", side_effect=RuntimeError):
+            result = json.loads(
+                tools.search_viki({"query": "zmluva"}, session_id="session-1")
+            )
+        self.assertEqual(result["error"]["code"], "missing_runtime_context")
+
+        with patch.object(tools, "_runtime_profile", return_value="qa"), patch.dict(
+            os.environ, {"VIKI_HERMES_TOOL_TOKEN": ""}
+        ):
+            result = json.loads(
+                tools.search_viki({"query": "zmluva"}, session_id="session-1")
+            )
+        self.assertEqual(result["error"]["code"], "configuration_error")
+
+        unsafe_urls = (
+            "https://127.0.0.1:8090",
+            "http://example.com:8090",
+            "http://user@localhost:8090",
+            "http://localhost:8090?debug=1",
+            "http://localhost:8090#fragment",
+        )
+        with patch.object(tools, "_runtime_profile", return_value="qa"):
+            for unsafe_url in unsafe_urls:
+                with self.subTest(url=unsafe_url), patch.dict(
+                    os.environ, {"VIKI_INTERNAL_URL": unsafe_url}
+                ):
+                    result = json.loads(
+                        tools.search_viki(
+                            {"query": "zmluva"}, session_id="session-1"
+                        )
+                    )
+                    self.assertEqual(result["error"]["code"], "configuration_error")
+
     def test_qa_profile_cannot_invoke_edit_handler(self):
         with patch.object(tools, "_runtime_profile", return_value="qa"), patch.object(
             tools, "urlopen"
@@ -94,6 +143,111 @@ class VikiPluginTest(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "profile_forbidden")
         open_mock.assert_not_called()
 
+    def test_read_and_edit_tools_decode_success_and_upstream_errors(self):
+        calls = []
+        responses = iter(
+            [
+                FakeResponse({"result": {"pageId": "page-1"}}),
+                FakeResponse({"result": {"revisionId": "revision-1"}}),
+                FakeResponse({"result": {"proposal": {"id": "proposal-1"}}}),
+                FakeResponse({"error": {"code": "conflict", "message": "stale"}}),
+                FakeResponse({"unexpected": True}),
+                FakeResponse(b"not-json"),
+                FakeResponse(b"\xff"),
+            ]
+        )
+
+        def fake_open(request, timeout):
+            calls.append(request)
+            self.assertEqual(timeout, 30)
+            return next(responses)
+
+        with patch.object(tools, "_runtime_profile", return_value="edit"), patch.object(
+            tools, "urlopen", side_effect=fake_open
+        ):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("VIKI_INTERNAL_URL", None)
+                page = json.loads(
+                    tools.get_viki_page({"pageId": "page-1"}, session_id="session-1")
+                )
+            revision = json.loads(
+                tools.get_viki_revision(
+                    {"revisionId": "revision-1"}, session_id="session-1"
+                )
+            )
+            proposal = json.loads(
+                tools.propose_viki_changeset(
+                    {"summary": "Zmena", "operations": []}, session_id="session-1"
+                )
+            )
+            upstream_error = json.loads(
+                tools.search_viki({"query": "x"}, session_id="session-1")
+            )
+            unexpected = json.loads(
+                tools.search_viki({"query": "x"}, session_id="session-1")
+            )
+            malformed = json.loads(
+                tools.search_viki({"query": "x"}, session_id="session-1")
+            )
+            invalid_unicode = json.loads(
+                tools.search_viki({"query": "x"}, session_id="session-1")
+            )
+
+        self.assertEqual(page, {"pageId": "page-1"})
+        self.assertEqual(revision, {"revisionId": "revision-1"})
+        self.assertEqual(proposal, {"proposal": {"id": "proposal-1"}})
+        self.assertEqual(upstream_error["error"]["code"], "conflict")
+        for result in (unexpected, malformed, invalid_unicode):
+            self.assertEqual(result["error"]["code"], "invalid_upstream_response")
+        self.assertEqual(
+            calls[0].full_url,
+            "http://127.0.0.1:8090/internal/v1/hermes/tools/get_viki_page",
+        )
+        self.assertIsNone(calls[0].get_header("X-hermes-task-id"))
+
+    def test_tools_bound_upstream_failures_and_response_sizes(self):
+        small_error = HTTPError(
+            "http://localhost", 409, "conflict", {}, BytesIO(
+                json.dumps({"error": {"code": "conflict"}}).encode()
+            )
+        )
+        large_error = HTTPError(
+            "http://localhost",
+            500,
+            "large",
+            {},
+            BytesIO(b"x" * (tools._MAX_RESPONSE_BYTES + 1)),
+        )
+        outcomes = (
+            (small_error, "conflict"),
+            (large_error, "upstream_response_too_large"),
+            (TimeoutError(), "upstream_unavailable"),
+            (URLError("offline"), "upstream_unavailable"),
+            (OSError("offline"), "upstream_unavailable"),
+        )
+
+        with patch.object(tools, "_runtime_profile", return_value="qa"):
+            for error, expected_code in outcomes:
+                with self.subTest(error=type(error).__name__), patch.object(
+                    tools, "urlopen", side_effect=error
+                ):
+                    result = json.loads(
+                        tools.search_viki({"query": "x"}, session_id="session-1")
+                    )
+                    self.assertEqual(result["error"]["code"], expected_code)
+
+            with patch.object(
+                tools,
+                "urlopen",
+                return_value=FakeResponse(b"x" * (tools._MAX_RESPONSE_BYTES + 1)),
+            ):
+                result = json.loads(
+                    tools.search_viki({"query": "x"}, session_id="session-1")
+                )
+                self.assertEqual(
+                    result["error"]["code"], "upstream_response_too_large"
+                )
+
     def test_tool_schemas_never_ask_the_model_for_actor_or_session_identity(self):
         schemas_json = json.dumps(schemas.ALL, sort_keys=True).lower()
 
@@ -103,10 +257,10 @@ class VikiPluginTest(unittest.TestCase):
     def test_tool_schemas_do_not_expose_removed_illustrative_metadata(self):
         self.assertNotIn("illustrative", json.dumps(schemas.ALL, sort_keys=True))
 
-    def test_changeset_tool_requires_linked_scenario_vocabulary(self):
+    def test_changeset_tool_requires_linked_feature_vocabulary(self):
         description = schemas.PROPOSE_CHANGESET["description"]
 
-        self.assertIn("všetky použité pojmy", description)
+        self.assertIn("všetky použité koncepty", description)
         self.assertIn("targetClientKey", description)
         self.assertIn("steps musí byť prázdne", description)
 
@@ -199,7 +353,7 @@ class VikiPluginTest(unittest.TestCase):
                         "proposal": {
                             "id": "proposal-2",
                             "turnId": "proposal-2",
-                            "summary": "Nový pojem",
+                            "summary": "Nový koncept",
                             "status": "awaiting_approval",
                             "operations": [{"content": {"bodyMd": "never expose generated prose"}}],
                         }
@@ -255,7 +409,7 @@ class VikiPluginTest(unittest.TestCase):
                     "proposal": {
                         "id": "proposal-2",
                         "turnId": "proposal-2",
-                        "summary": "Nový pojem",
+                        "summary": "Nový koncept",
                         "status": "awaiting_approval",
                     },
                 },
@@ -275,6 +429,119 @@ class VikiPluginTest(unittest.TestCase):
         ):
             self.assertNotIn(secret, serialized)
         self.assertIn("non-Viki raw output", json.dumps(history, ensure_ascii=False))
+
+    def test_history_projection_normalizes_every_supported_receipt_shape(self):
+        def original(_history):
+            return [
+                "not a message",
+                {"role": "assistant", "text": "answer"},
+                {"role": "tool", "name": "search_viki"},
+                {"role": "tool", "name": "get_viki_page"},
+                {"role": "tool", "name": "get_viki_revision"},
+                {"role": "tool", "name": "propose_viki_changeset"},
+                {"role": "tool", "name": "search_viki"},
+                {"role": "tool", "name": "unknown"},
+            ]
+
+        class Server:
+            _history_to_messages = staticmethod(original)
+
+        revision = {
+            "id": "revision-1",
+            "pageId": "page-1",
+            "title": "Zmluva",
+            "status": "draft",
+        }
+        page_revision = {
+            "revisionId": "revision-2",
+            "pageId": "page-2",
+            "pageTitle": "Zákazník",
+            "draft": False,
+        }
+        history = [
+            None,
+            {"role": "assistant", "content": "answer"},
+            {
+                "role": "tool",
+                "content": {
+                    "result": {"documents": [revision, revision, None, {}]}
+                },
+            },
+            {
+                "role": "tool",
+                "content": bytearray(
+                    json.dumps(
+                        {
+                            "acceptedRevision": page_revision,
+                            "draftRevision": None,
+                        }
+                    ).encode()
+                ),
+            },
+            {
+                "role": "tool",
+                "content": json.dumps(json.dumps(page_revision)),
+            },
+            {"role": "tool", "content": []},
+        ]
+
+        self.assertTrue(history_projection.install(Server))
+        projected = Server._history_to_messages(history)
+
+        self.assertEqual(projected[2]["result"]["citations"], [{
+            "revisionId": "revision-1",
+            "pageId": "page-1",
+            "pageTitle": "Zmluva",
+            "draft": True,
+        }])
+        self.assertEqual(projected[3]["result"]["citations"], [page_revision])
+        self.assertEqual(projected[4]["result"]["citations"], [page_revision])
+        self.assertIsNone(projected[5]["result"]["proposal"])
+        self.assertEqual(projected[6]["result"], {"citations": [], "drafts": []})
+        self.assertNotIn("result", projected[7])
+
+    def test_history_projection_installation_fails_closed(self):
+        missing_gateway = ModuleNotFoundError("missing", name="tui_gateway")
+        with patch.object(
+            history_projection.importlib,
+            "import_module",
+            side_effect=missing_gateway,
+        ):
+            self.assertFalse(history_projection.install())
+
+        nested_dependency = ModuleNotFoundError("missing", name="dependency")
+        with patch.object(
+            history_projection.importlib,
+            "import_module",
+            side_effect=nested_dependency,
+        ):
+            with self.assertRaises(ModuleNotFoundError):
+                history_projection.install()
+
+        with self.assertRaisesRegex(RuntimeError, "projection is unavailable"):
+            history_projection.install(SimpleNamespace())
+
+        server = SimpleNamespace(_history_to_messages=lambda history: history)
+        with patch.object(
+            history_projection.importlib, "import_module", return_value=server
+        ):
+            self.assertTrue(history_projection.install())
+
+    def test_history_projection_drops_unsupported_tool_data(self):
+        result = history_projection._safe_result(
+            "unsupported",
+            {
+                "documents": [
+                    {
+                        "revisionId": "revision-secret",
+                        "pageId": "page-secret",
+                        "pageTitle": "Secret",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(result, {"citations": [], "drafts": []})
 
 
 if __name__ == "__main__":

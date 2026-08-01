@@ -11,10 +11,12 @@ import { DraftPage } from './pages/DraftPage'
 import { DraftsPage } from './pages/DraftsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { AssistantProvider } from './assistant'
+import { useI18n } from './i18n'
 
 export function App() {
   const { user, loading } = useAuth()
-  if (loading) return <div className="app-loading"><div className="brand-mark">v</div><span>Načítavam viki…</span></div>
+  const { t } = useI18n()
+  if (loading) return <div className="app-loading"><div className="brand-mark">v</div><span>{t('app.loading')}</span></div>
   if (!user) return <LoginPage />
   return (
     <WorkspaceProvider>
@@ -27,9 +29,9 @@ export function App() {
 
 function CurrentRoute() {
   const { pathname } = useRouter()
-  if (pathname === '/') return <LibraryPage kind="primitive" />
-  if (pathname === '/primitives') return <LibraryPage kind="primitive" />
-  if (pathname === '/scenarios') return <LibraryPage kind="scenario" />
+  if (pathname === '/') return <LibraryPage kind="concept" />
+  if (pathname === '/concepts') return <LibraryPage kind="concept" />
+  if (pathname === '/features') return <LibraryPage kind="feature" />
   if (pathname === '/audit') return <AuditPage />
   if (pathname === '/search') return <SearchPage />
   if (pathname === '/drafts') return <DraftsPage />

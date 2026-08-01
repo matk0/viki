@@ -9,6 +9,8 @@ import (
 	"viki/internal/security"
 )
 
+var newOpaqueToken = security.NewOpaqueToken
+
 func (s *Server) login(w http.ResponseWriter, request *http.Request) {
 	var input struct {
 		Email    string `json:"email"`
@@ -29,12 +31,12 @@ func (s *Server) login(w http.ResponseWriter, request *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "E-mail alebo heslo nie je správne.")
 		return
 	}
-	sessionToken, sessionHash, err := security.NewOpaqueToken()
+	sessionToken, sessionHash, err := newOpaqueToken()
 	if err != nil {
 		s.handleError(w, err)
 		return
 	}
-	csrfToken, csrfHash, err := security.NewOpaqueToken()
+	csrfToken, csrfHash, err := newOpaqueToken()
 	if err != nil {
 		s.handleError(w, err)
 		return

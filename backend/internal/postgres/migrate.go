@@ -11,6 +11,9 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
+var readMigrationDir = fs.ReadDir
+var readMigrationFile = fs.ReadFile
+
 func (r *Repository) Migrate(ctx context.Context) error {
 	if _, err := r.pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -20,7 +23,7 @@ func (r *Repository) Migrate(ctx context.Context) error {
 		return fmt.Errorf("create schema migrations: %w", err)
 	}
 
-	entries, err := fs.ReadDir(migrationFiles, "migrations")
+	entries, err := readMigrationDir(migrationFiles, "migrations")
 	if err != nil {
 		return fmt.Errorf("read embedded migrations: %w", err)
 	}
@@ -36,7 +39,7 @@ func (r *Repository) Migrate(ctx context.Context) error {
 		if applied {
 			continue
 		}
-		contents, err := migrationFiles.ReadFile("migrations/" + entry.Name())
+		contents, err := readMigrationFile(migrationFiles, "migrations/"+entry.Name())
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}

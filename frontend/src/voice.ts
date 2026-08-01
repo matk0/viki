@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Translate } from './i18n'
 
 interface SpeechRecognitionResultLike {
   readonly 0: { readonly transcript: string }
@@ -33,27 +34,27 @@ type SpeechWindow = Window & {
 }
 
 function recognitionConstructor(): SpeechRecognitionConstructor | null {
-  if (typeof window === 'undefined') return null
   const speechWindow = window as SpeechWindow
   return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null
 }
 
-function voiceErrorMessage(code: string): string {
+function voiceErrorMessage(code: string, t: Translate): string {
   switch (code) {
   case 'not-allowed':
   case 'service-not-allowed':
-    return 'Povoľte prístup k mikrofónu a skúste to znova.'
+    return t('voice.notAllowed')
   case 'audio-capture':
-    return 'Mikrofón nie je dostupný.'
+    return t('voice.unavailable')
   case 'no-speech':
-    return 'Nezachytil som žiadnu reč. Skúste to znova.'
+    return t('voice.noSpeech')
   default:
-    return 'Hlasový vstup sa nepodarilo rozpoznať.'
+    return t('voice.unrecognized')
   }
 }
 
-export function useSlovakVoiceInput(value: string, onChange: (value: string) => void, disabled: boolean) {
+export function useSlovakVoiceInput(value: string, onChange: (value: string) => void, disabled: boolean, t: Translate) {
   const recognition = useRef<SpeechRecognitionLike | null>(null)
+  const initialValue = useRef('')
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
   const supported = recognitionConstructor() !== null
@@ -62,16 +63,26 @@ export function useSlovakVoiceInput(value: string, onChange: (value: string) => 
     recognition.current?.stop()
   }, [])
 
+  const cancel = useCallback(() => {
+    const instance = recognition.current
+    if (!instance) return
+    recognition.current = null
+    instance.abort()
+    onChange(initialValue.current)
+    setListening(false)
+  }, [onChange])
+
   const start = useCallback(() => {
     if (disabled || recognition.current) return
     const Constructor = recognitionConstructor()
     if (!Constructor) {
-      setError('Tento prehliadač nepodporuje hlasový vstup.')
+      setError(t('voice.unsupported'))
       return
     }
 
     const instance = new Constructor()
     const original = value.trimEnd()
+    initialValue.current = value
     instance.lang = 'sk-SK'
     instance.continuous = true
     instance.interimResults = true
@@ -84,7 +95,7 @@ export function useSlovakVoiceInput(value: string, onChange: (value: string) => 
       onChange(original && spoken ? `${original} ${spoken}` : original || spoken)
     }
     instance.onerror = (event) => {
-      setError(voiceErrorMessage(event.error))
+      setError(voiceErrorMessage(event.error, t))
     }
     instance.onend = () => {
       if (recognition.current === instance) recognition.current = null
@@ -98,9 +109,9 @@ export function useSlovakVoiceInput(value: string, onChange: (value: string) => 
     } catch {
       recognition.current = null
       setListening(false)
-      setError('Hlasový vstup sa nepodarilo spustiť.')
+      setError(t('voice.startFailed'))
     }
-  }, [disabled, onChange, value])
+  }, [disabled, onChange, t, value])
 
   useEffect(() => {
     if (disabled && recognition.current) recognition.current.abort()
@@ -111,5 +122,5 @@ export function useSlovakVoiceInput(value: string, onChange: (value: string) => 
     recognition.current = null
   }, [])
 
-  return { supported, listening, error, start, stop }
+  return { supported, listening, error, start, stop, cancel }
 }
