@@ -24,14 +24,16 @@ import type {
   AssistantStreamEvent,
   Citation,
 } from './api/types'
+import { useSlovakVoiceInput } from './voice'
 import { useWorkspace } from './workspace'
+import { useI18n } from './i18n'
 
 interface Activity {
   state: string
   mode: AssistantMode
 }
 
-type PendingClarification = AssistantClarification & { choices?: string[] }
+type PendingClarification = AssistantClarification & { choices?: string[]; turnId?: string }
 
 interface AssistantValue {
   status: AssistantStatus | null
@@ -47,6 +49,7 @@ interface AssistantValue {
   clarificationResponse: string
   error: string
   modeAvailable: boolean
+  voice: ReturnType<typeof useSlovakVoiceInput>
   setComposer: (value: string) => void
   setMode: (mode: AssistantMode) => void
   setClarificationResponse: (value: string) => void
@@ -128,6 +131,7 @@ function isManagementCommand(content: string): boolean {
 }
 
 export function AssistantProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
   const { reloadPages } = useWorkspace()
   const { navigate } = useRouter()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
@@ -192,11 +196,11 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         setConversation(null)
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Rozhovory sa nepodarilo načítať.')
+      setError(reason instanceof Error ? reason.message : t('assistant.loadConversationsFailed'))
     } finally {
       setLoading(false)
     }
-  }, [conversation, loadConversation, mode, rememberConversation])
+  }, [conversation, loadConversation, mode, rememberConversation, t])
 
   useEffect(() => {
     if (initialized.current) return
@@ -244,7 +248,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
       return
     }
     if (event.type === 'clarification') {
-      setClarification({ requestId: event.data.requestId, mode: event.data.mode, message: event.data.message, choices: event.data.choices })
+      setClarification({ turnId: event.data.turnId, requestId: event.data.requestId, mode: event.data.mode, message: event.data.message, choices: event.data.choices })
       setActivity({ state: 'clarifying', mode: event.data.mode })
       setConversation((current) => current?.id === conversationId ? { ...current, state: 'awaiting_clarification' } : current)
       return
@@ -308,11 +312,11 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     try {
       await loadConversation(id)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Rozhovor sa nepodarilo načítať.')
+      setError(reason instanceof Error ? reason.message : t('assistant.loadConversationFailed'))
     } finally {
       setLoading(false)
     }
-  }, [conversation, loadConversation])
+  }, [conversation, loadConversation, t])
 
   const createConversation = useCallback(async () => {
     if (isConversationActive(conversation) || !status?.[mode]?.ready) return
@@ -323,9 +327,9 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
       setComposer('')
       setClarification(null)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Nový rozhovor sa nepodarilo vytvoriť.')
+      setError(reason instanceof Error ? reason.message : t('assistant.createConversationFailed'))
     }
-  }, [conversation, mode, rememberConversation, status])
+  }, [conversation, mode, rememberConversation, status, t])
 
   const setMode = useCallback((next: AssistantMode) => {
     if (isConversationActive(conversation)) return
@@ -334,13 +338,14 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   }, [conversation])
 
   const modeAvailable = Boolean(status?.[mode]?.ready)
+  const voice = useSlovakVoiceInput(composer, setComposer, isConversationActive(conversation) || !modeAvailable, t)
 
   const send = useCallback(async (event?: FormEvent) => {
     event?.preventDefault()
     const content = composer.trim()
     if (!conversation || !content || isConversationActive(conversation) || !modeAvailable) return
     if (isManagementCommand(content)) {
-      setError('Príkazy na správu asistenta nie sú vo viki povolené.')
+      setError(t('assistant.managementForbidden'))
       return
     }
     const optimisticId = `local-${Date.now()}`
@@ -368,9 +373,9 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         : current)
       setComposer(content)
       setActivity(null)
-      setError(reason instanceof Error ? reason.message : 'Správu sa nepodarilo odoslať.')
+      setError(reason instanceof Error ? reason.message : t('assistant.sendFailed'))
     }
-  }, [composer, conversation, mode, modeAvailable, navigate])
+  }, [composer, conversation, mode, modeAvailable, navigate, t])
 
   const stop = useCallback(async () => {
     if (!conversation || !isConversationActive(conversation)) return
@@ -378,9 +383,9 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     try {
       await api.stopAssistantConversation(conversation.id)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Asistenta sa nepodarilo zastaviť.')
+      setError(reason instanceof Error ? reason.message : t('assistant.stopFailed'))
     }
-  }, [conversation])
+  }, [conversation, t])
 
   const respondToClarification = useCallback(async (event?: FormEvent) => {
     event?.preventDefault()
@@ -395,9 +400,9 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     } catch (reason) {
       setClarification(pending)
       setClarificationResponse(response)
-      setError(reason instanceof Error ? reason.message : 'Doplnenie sa nepodarilo odoslať.')
+      setError(reason instanceof Error ? reason.message : t('assistant.clarificationFailed'))
     }
-  }, [clarification, clarificationResponse, conversation])
+  }, [clarification, clarificationResponse, conversation, t])
 
   const reconnect = useCallback(() => setStreamGeneration((value) => value + 1), [])
 
@@ -415,6 +420,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     clarificationResponse,
     error,
     modeAvailable,
+    voice,
     setComposer,
     setMode,
     setClarificationResponse,
@@ -446,6 +452,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     send,
     status,
     stop,
+    voice,
   ])
 
   return <AssistantContext.Provider value={value}>{children}</AssistantContext.Provider>

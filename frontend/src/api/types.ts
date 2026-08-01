@@ -2,12 +2,12 @@ import type { components } from './generated'
 
 type Schemas = components['schemas']
 
-export type PageKind = 'primitive' | 'scenario' | 'subscenario'
-export type PrimitiveKind = 'noun' | 'verb'
-export type RevisionStatus = 'draft' | 'accepted' | 'superseded'
-export type VoteValue = 'approve' | 'reject'
+export type PageKind = Schemas['PageKind']
+export type ConceptKind = Schemas['ConceptKind']
+export type RevisionStatus = Schemas['RevisionStatus']
+export type VoteValue = Schemas['VoteValue']
 export type AssistantMode = Schemas['AssistantMode']
-export type BDDKeyword = 'given' | 'when' | 'then' | 'and' | 'but'
+export type BDDKeyword = Schemas['BDDKeyword']
 
 export type AssistantConversationState = Schemas['AssistantConversationState']
 export type AssistantProfileStatus = Schemas['AssistantProfileStatus']
@@ -17,6 +17,8 @@ export type AssistantDraftReceipt = Schemas['AssistantDraftReceipt']
 export type AssistantChangeOperation = Schemas['AssistantChangeOperation']
 export type AssistantDraftProposal = Schemas['AssistantDraftProposal']
 export type AssistantDraftProposalStatus = Schemas['AssistantDraftProposalStatus']
+export type AssistantOperationReview = Schemas['AssistantOperationReview']
+export type AssistantOperationReviewValue = Schemas['AssistantOperationReviewValue']
 export type AssistantMessage = Schemas['AssistantMessage']
 export type AssistantClarification = Schemas['AssistantClarification']
 export type AssistantConversation = Schemas['AssistantConversation']
@@ -47,7 +49,7 @@ export interface User {
 export interface Page {
   id: string
   kind: PageKind
-  primitiveKind?: PrimitiveKind
+  conceptKind?: ConceptKind
   parentId?: string
   slug: string
   title: string

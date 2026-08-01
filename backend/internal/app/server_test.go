@@ -30,6 +30,10 @@ type proposalRepository struct {
 	proposal        model.AssistantDraftProposal
 	discarded       bool
 	rejectionReason string
+	reviewedKey     string
+	reviewedValue   model.AssistantOperationReviewValue
+	reviewedReason  string
+	reviewedCascade bool
 }
 
 func (r *proposalRepository) SessionByHash(context.Context, []byte) (model.Session, error) {
@@ -42,6 +46,26 @@ func (r *proposalRepository) AssistantDraftProposal(context.Context, string, str
 
 func (r *proposalRepository) PublishAssistantDraftProposal(context.Context, string, string, string) (model.AssistantDraftProposal, error) {
 	r.proposal.Status = model.AssistantProposalPublished
+	return r.proposal, nil
+}
+
+func (r *proposalRepository) ReviewAssistantDraftProposalOperation(
+	_ context.Context,
+	_, _, _, operationKey string,
+	value model.AssistantOperationReviewValue,
+	reason string,
+	cascadeDescendants bool,
+) (model.AssistantDraftProposal, error) {
+	r.reviewedKey = operationKey
+	r.reviewedValue = value
+	r.reviewedReason = reason
+	r.reviewedCascade = cascadeDescendants
+	r.proposal.OperationReviews = []model.AssistantOperationReview{{
+		OperationKey: operationKey,
+		Value:        value,
+		Reason:       reason,
+		ReviewedAt:   time.Now(),
+	}}
 	return r.proposal, nil
 }
 
@@ -111,7 +135,7 @@ func TestDraftProposalCanBeReadAndApprovedThroughAuthenticatedAPI(t *testing.T) 
 		},
 		proposal: model.AssistantDraftProposal{
 			ID: proposalID, TurnID: proposalID, Summary: "Pridať zákazníka", Status: model.AssistantProposalAwaitingApproval,
-			Operations: []model.AIChangeOperation{{Operation: "create", Kind: model.PageScenario, Slug: "novy-scenar", Content: model.RevisionContent{Title: "Nový scenár"}}},
+			Operations: []model.AIChangeOperation{{Operation: "create", Kind: model.PageFeature, Slug: "nova-funkcia", Content: model.RevisionContent{Title: "Nová funkcia"}}},
 		},
 	}
 	handler := app.New(repository, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -180,5 +204,50 @@ func TestDraftProposalRejectionRequiresReasonAtHTTPBoundary(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"rejectionReason":"Chýba presný spôsob výpočtu ceny."`) {
 		t.Fatalf("response does not include rejection reason: %s", recorder.Body.String())
+	}
+}
+
+func TestDraftProposalOperationReviewRequiresReasonAndRecordsExactOperation(t *testing.T) {
+	t.Parallel()
+
+	csrf := "operation-review-csrf"
+	proposalID := "00000000-0000-4000-8000-000000000090"
+	repository := &proposalRepository{
+		session: model.Session{
+			User:           model.User{ID: "00000000-0000-4000-8000-000000000011", Email: "matej@matejlukasik.com"},
+			OrganizationID: "00000000-0000-4000-8000-000000000001", CSRFHash: security.HashToken(csrf), Expires: time.Now().Add(time.Hour),
+		},
+		proposal: model.AssistantDraftProposal{ID: proposalID, Status: model.AssistantProposalAwaitingApproval, OperationReviews: []model.AssistantOperationReview{}},
+	}
+	handler := app.New(repository, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	requestReview := func(body map[string]any) *httptest.ResponseRecorder {
+		payload, _ := json.Marshal(body)
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/draft-proposals/"+proposalID+"/operations/zmluva/review", bytes.NewReader(payload))
+		request.AddCookie(&http.Cookie{Name: "viki_session", Value: "opaque-session"})
+		request.AddCookie(&http.Cookie{Name: "viki_csrf", Value: csrf})
+		request.Header.Set("X-CSRF-Token", csrf)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	missingReason := requestReview(map[string]any{"value": "reject", "reason": "   "})
+	if missingReason.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("missing reason status = %d, want %d; body=%s", missingReason.Code, http.StatusUnprocessableEntity, missingReason.Body.String())
+	}
+	if repository.reviewedKey != "" {
+		t.Fatal("repository was called for a rejection without a reason")
+	}
+
+	approved := requestReview(map[string]any{"value": "approve", "cascadeDescendants": true})
+	if approved.Code != http.StatusOK {
+		t.Fatalf("approve status = %d, want %d; body=%s", approved.Code, http.StatusOK, approved.Body.String())
+	}
+	if repository.reviewedKey != "zmluva" || repository.reviewedValue != model.AssistantReviewApprove || repository.reviewedReason != "" || !repository.reviewedCascade {
+		t.Fatalf("review = (%q, %q, %q, cascade=%t)", repository.reviewedKey, repository.reviewedValue, repository.reviewedReason, repository.reviewedCascade)
+	}
+	if !strings.Contains(approved.Body.String(), `"operationKey":"zmluva"`) {
+		t.Fatalf("response does not include operation review: %s", approved.Body.String())
 	}
 }

@@ -46,8 +46,15 @@ func (c *webSocketConnector) Connect(ctx context.Context) (wire, error) {
 }
 
 type webSocketWire struct {
-	connection *websocket.Conn
+	connection webSocketConnection
 	writeMu    sync.Mutex
+}
+
+type webSocketConnection interface {
+	ReadMessage() (int, []byte, error)
+	SetWriteDeadline(time.Time) error
+	WriteMessage(int, []byte) error
+	Close() error
 }
 
 func (w *webSocketWire) Read(context.Context) ([]byte, error) {

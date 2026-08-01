@@ -12,8 +12,10 @@ const (
 	initialUserEmail      = "matej@matejlukasik.com"
 )
 
+var hashInitialPassword = security.HashPassword
+
 func (r *Repository) EnsureInitialUser(ctx context.Context, password string) error {
-	hash, err := security.HashPassword(password)
+	hash, err := hashInitialPassword(password)
 	if err != nil {
 		return err
 	}

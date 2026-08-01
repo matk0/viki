@@ -86,6 +86,7 @@ func NewApplication(repository store.Repository, gateway hermes.Gateway, options
 	mux.HandleFunc("POST /api/v1/assistant/conversations/{conversationID}/clarifications/{requestID}", server.requireAuth(server.respondAssistantClarification))
 	mux.HandleFunc("GET /api/v1/draft-proposals", server.requireAuth(server.listDraftProposals))
 	mux.HandleFunc("GET /api/v1/draft-proposals/{proposalID}", server.requireAuth(server.draftProposal))
+	mux.HandleFunc("POST /api/v1/draft-proposals/{proposalID}/operations/{operationKey}/review", server.requireAuth(server.reviewDraftProposalOperation))
 	mux.HandleFunc("POST /api/v1/draft-proposals/{proposalID}/approve", server.requireAuth(server.approveDraftProposal))
 	mux.HandleFunc("POST /api/v1/draft-proposals/{proposalID}/discard", server.requireAuth(server.discardDraftProposal))
 	mux.HandleFunc("/internal/", http.NotFound)

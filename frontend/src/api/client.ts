@@ -1,5 +1,6 @@
 import type {
   AssistantMode,
+  AssistantOperationReviewValue,
   AssistantCommandAccepted,
   AssistantConversation,
   AssistantConversationSummary,
@@ -50,7 +51,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...options, headers, credentials: 'same-origin' })
   if (!response.ok) {
     let code = 'request_failed'
-    let message = `Požiadavka zlyhala (${response.status}).`
+    let message = document.documentElement.lang === 'en'
+      ? `Request failed (${response.status}).`
+      : `Požiadavka zlyhala (${response.status}).`
     try {
       const body = await response.json() as { error?: { code?: string; message?: string } }
       code = body.error?.code ?? code
@@ -58,12 +61,38 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       // A non-JSON proxy error keeps the generic user-facing message.
     }
-    throw new APIError(response.status, code, message)
+    throw new APIError(response.status, code, localizedErrorMessage(code, message))
   }
   if (response.status === 204) return undefined as T
   const body = await response.text()
   if (!body) return undefined as T
   return JSON.parse(body) as T
+}
+
+function localizedErrorMessage(code: string, fallback: string): string {
+  if (document.documentElement.lang !== 'en') return fallback
+  const messages: Record<string, string> = {
+    unauthorized: 'Please sign in again.', csrf_failed: 'The security token is invalid. Refresh the page.',
+    invalid_json: 'The request has an invalid format.', not_found: 'The record was not found.',
+    revision_conflict: 'Another user changed this page. Refresh the draft and apply your changes again.',
+    duplicate_slug: 'A page with this address already exists.', invalid_page: 'The page hierarchy or reference is invalid.',
+    rejection_reason_required: 'You must provide a reason when rejecting.', invalid_vote: 'The vote is invalid.',
+    unresolved_rejection: 'An unresolved rejection blocks publication.',
+    rejected_proposal_dependency: 'An approved change depends on a rejected concept. Reject the dependent change or approve the concept.',
+    invalid_mode: 'Select Questions or Edit mode.', invalid_settings: 'Choose a setting to change.',
+    assistant_busy: 'Wait for the current message to finish or stop it.', assistant_idle: 'No message is currently running.',
+    invalid_message: 'The message must contain between 1 and 12,000 characters.',
+    invalid_answer: 'The answer must contain between 1 and 12,000 characters.',
+    clarification_mismatch: 'This clarification request is no longer active.',
+    management_command_forbidden: 'Assistant management commands are not allowed in viki.',
+    assistant_unavailable: 'The viki assistant is currently unavailable.', streaming_unavailable: 'Streaming is unavailable.',
+    invalid_operation_review: 'The decision is invalid.', invalid_credentials: 'The email or password is incorrect.',
+    login_rate_limited: 'Too many failed attempts. Try again in five minutes.',
+    database_unavailable: 'The database is not ready.', internal_error: 'An unexpected error occurred.',
+    frontend_unavailable: 'The frontend has not been built yet.', missing_id: 'A required identifier is missing.',
+    request_failed: 'The request could not be processed.',
+  }
+  return messages[code] ?? fallback
 }
 
 export const api = {
@@ -80,7 +109,7 @@ export const api = {
   },
   page: (id: string) => request<PageDetail>(`/api/v1/pages/${id}`),
   revision: (id: string) => request<Revision>(`/api/v1/revisions/${id}`),
-  createPage: (input: { kind: PageKind; primitiveKind?: 'noun' | 'verb'; parentId?: string; slug: string; content: RevisionContent }) =>
+  createPage: (input: { kind: PageKind; conceptKind?: 'noun' | 'verb'; parentId?: string; slug: string; content: RevisionContent }) =>
     request<PageDetail>('/api/v1/pages', { method: 'POST', body: JSON.stringify(input) }),
   saveRevision: (pageId: string, baseRevisionId: string, content: RevisionContent) =>
     request<Revision>(`/api/v1/pages/${pageId}/revisions`, { method: 'POST', body: JSON.stringify({ baseRevisionId, content }) }),
@@ -109,6 +138,10 @@ export const api = {
   }),
   draftProposals: () => request<{ proposals: AssistantDraftProposal[] }>('/api/v1/draft-proposals'),
   draftProposal: (id: string) => request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}`),
+  reviewDraftProposalOperation: (id: string, operationKey: string, value: AssistantOperationReviewValue, reason = '', cascadeDescendants = false) =>
+    request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}/operations/${encodeURIComponent(operationKey)}/review`, {
+      method: 'POST', body: JSON.stringify({ value, ...(reason ? { reason } : {}), ...(cascadeDescendants ? { cascadeDescendants: true } : {}) }),
+    }),
   approveDraftProposal: (id: string) => request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}/approve`, { method: 'POST' }),
   discardDraftProposal: (id: string, reason: string) => request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}/discard`, {
     method: 'POST', body: JSON.stringify({ reason }),

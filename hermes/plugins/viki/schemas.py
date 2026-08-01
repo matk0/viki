@@ -19,7 +19,7 @@ _REFERENCE = {
         "targetClientKey": {"type": "string"},
         "targetTitle": {
             "type": "string",
-            "description": "Kanonický názov cieľového pojmu z viki alebo z rovnakej sady zmien.",
+            "description": "Kanonický názov cieľového konceptu z viki alebo z rovnakej sady zmien.",
         },
         "relation": {"type": "string"},
     },
@@ -55,9 +55,9 @@ _OPERATION = {
         "baseRevisionId": {"type": ["string", "null"]},
         "kind": {
             "type": "string",
-            "enum": ["primitive", "scenario", "subscenario"],
+            "enum": ["concept", "feature", "scenario"],
         },
-        "primitiveKind": {
+        "conceptKind": {
             "type": ["string", "null"],
             "enum": ["noun", "verb", None],
         },
@@ -72,7 +72,7 @@ _OPERATION = {
         "pageId",
         "baseRevisionId",
         "kind",
-        "primitiveKind",
+        "conceptKind",
         "parentId",
         "parentClientKey",
         "slug",
@@ -84,7 +84,7 @@ SEARCH = {
     "name": "search_viki",
     "description": (
         "Vyhľadaj relevantné stránky viki. Použi pred odpoveďou na otázku "
-        "aj pred návrhom úprav. Vyhľadávanie vždy zahŕňa schválené aj aktuálne konceptové revízie."
+        "aj pred návrhom úprav. Vyhľadávanie vždy zahŕňa schválené aj aktuálne draftové revízie."
     ),
     "parameters": {
         "type": "object",
@@ -127,9 +127,9 @@ PROPOSE_CHANGESET = {
     "description": (
         "Priprav návrh nových stránok alebo revízií na kontrolu človekom. Nástroj nič "
         "nevytvorí ani nepublikuje. Použi ho po získaní presných ID a vyjasnení nejednoznačností. "
-        "Scenár musí mať v references všetky použité pojmy. Chýbajúci pojem pridaj "
-        "ako skoršiu primitive operáciu a prepoj ho cez targetClientKey. Pre kind=scenario "
-        "steps musí byť prázdne; BDD kroky patria iba do kind=subscenario."
+        "Funkcia aj scenár musia mať v references všetky použité koncepty. Chýbajúci koncept pridaj "
+        "ako skoršiu concept operáciu a prepoj ho cez targetClientKey. Pre kind=feature "
+        "steps musí byť prázdne; BDD kroky patria iba do kind=scenario, ktorý má rodičovskú feature."
     ),
     "parameters": {
         "type": "object",

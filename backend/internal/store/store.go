@@ -42,6 +42,7 @@ type Repository interface {
 	StageAssistantDraftProposal(context.Context, string, string, model.AssistantMutationContext, model.AIChangeSet) (model.AssistantDraftProposal, error)
 	ListAssistantDraftProposals(context.Context, string, string) ([]model.AssistantDraftProposal, error)
 	AssistantDraftProposal(context.Context, string, string, string) (model.AssistantDraftProposal, error)
+	ReviewAssistantDraftProposalOperation(context.Context, string, string, string, string, model.AssistantOperationReviewValue, string, bool) (model.AssistantDraftProposal, error)
 	PublishAssistantDraftProposal(context.Context, string, string, string) (model.AssistantDraftProposal, error)
 	DiscardAssistantDraftProposal(context.Context, string, string, string, string) (model.AssistantDraftProposal, error)
 

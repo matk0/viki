@@ -6,18 +6,21 @@ import {
   LogOut,
   Menu,
   Search,
-  Sparkles,
   Workflow,
   X,
 } from 'lucide-react';
 import { useAuth } from '../auth';
+import { useAssistant } from '../assistant';
 import { Link, useRouter } from '../router';
 import { useWorkspace } from '../workspace';
 import { AssistantPanel } from './assistant/AssistantPanel';
 import { NewPageDialog } from './NewPageDialog';
+import { LanguageSwitcher, useI18n } from '../i18n';
 
 export function Layout({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const { user, logout } = useAuth();
+  const { voice } = useAssistant();
   const {
     assistantOpen,
     setAssistantOpen,
@@ -33,11 +36,23 @@ export function Layout({ children }: { children: ReactNode }) {
   };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'm') {
+        event.preventDefault();
+        setAssistantOpen(true);
+        if (voice.listening) voice.stop();
+        else voice.start();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         navigate('/search');
       }
       if (event.key === 'Escape') {
+        if (voice.listening) {
+          event.preventDefault();
+          voice.cancel();
+          return;
+        }
         setAssistantOpen(false);
         setMobileOpen(false);
         closeNewPage();
@@ -45,13 +60,13 @@ export function Layout({ children }: { children: ReactNode }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [navigate, setAssistantOpen, closeNewPage]);
+  }, [navigate, setAssistantOpen, closeNewPage, voice.cancel, voice.listening, voice.start, voice.stop]);
   return (
     <div className={`app-shell ${assistantVisible ? 'assistant-visible' : ''}`}>
       <button
         className="mobile-menu"
         onClick={() => setMobileOpen(true)}
-        aria-label="Otvoriť navigáciu"
+        aria-label={t('nav.open')}
       >
         <Menu size={19} />
       </button>
@@ -59,61 +74,62 @@ export function Layout({ children }: { children: ReactNode }) {
         <button
           className="sidebar-scrim"
           onClick={() => setMobileOpen(false)}
-          aria-label="Zavrieť navigáciu"
+          aria-label={t('nav.close')}
         />
       )}
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-brand">
-          <Link to="/primitives" className="wordmark">
+          <Link to="/concepts" className="wordmark">
             viki
           </Link>
           <button
             className="icon-button mobile-only"
             onClick={() => setMobileOpen(false)}
-            aria-label="Zavrieť"
+            aria-label={t('common.close')}
           >
             <X size={17} />
           </button>
         </div>
         <button className="sidebar-search" onClick={() => go('/search')}>
           <Search size={15} />
-          <span>Hľadať</span>
+          <span>{t('nav.search')}</span>
           <kbd>⌘ K</kbd>
         </button>
         <nav
           className="sidebar-nav"
-          aria-label="Hlavná navigácia"
+          aria-label={t('nav.main')}
           onClick={() => setMobileOpen(false)}
         >
           <NavItem
-            to="/primitives"
-            active={pathname === '/' || pathname === '/primitives'}
+            to="/concepts"
+            active={pathname === '/' || pathname === '/concepts'}
             icon={<Box size={16} />}
           >
-            Pojmy
+            {t('kind.concepts')}
           </NavItem>
           <NavItem
-            to="/scenarios"
-            active={pathname === '/scenarios'}
+            to="/features"
+            active={pathname === '/features'}
             icon={<Workflow size={16} />}
           >
-            Scenáre
+            {t('kind.features')}
           </NavItem>
           <NavItem
             to="/drafts"
             active={pathname.startsWith('/drafts')}
             icon={<Files size={16} />}
           >
-            Koncepty
+            {t('nav.drafts')}
           </NavItem>
           <NavItem
             to="/audit"
             active={pathname === '/audit'}
             icon={<Clock3 size={16} />}
           >
-            História zmien
+            {t('nav.audit')}
           </NavItem>
         </nav>
+        <LanguageSwitcher className="sidebar-language" />
         <div className="sidebar-user">
           <div className="avatar">{user?.displayName.slice(0, 1)}</div>
           <div>
@@ -123,7 +139,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <button
             className="icon-button"
             onClick={() => void logout()}
-            aria-label="Odhlásiť"
+            aria-label={t('nav.logout')}
           >
             <LogOut size={16} />
           </button>
@@ -132,10 +148,13 @@ export function Layout({ children }: { children: ReactNode }) {
       <main className="main-content">{children}</main>
       <button
         className={`assistant-fab ${assistantVisible ? 'active' : ''}`}
-        onClick={() => setAssistantOpen(!assistantOpen)}
-        aria-label={assistantOpen ? 'Zavrieť asistenta' : 'Otvoriť asistenta'}
+        onClick={() => {
+          if (assistantOpen && voice.listening) voice.cancel();
+          setAssistantOpen(!assistantOpen);
+        }}
+        aria-label={assistantOpen ? t('assistant.close') : t('assistant.open')}
       >
-        <Sparkles size={20} fill="currentColor" />
+        <img src="/assistant-stars.svg" alt="" aria-hidden="true" />
       </button>
       {assistantVisible && (
         <aside className="assistant-drawer">

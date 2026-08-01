@@ -44,8 +44,6 @@ def _tool_candidates(name, payload):
         candidates = [payload.get("acceptedRevision"), payload.get("draftRevision")]
     elif name == "get_viki_revision":
         candidates = [payload]
-    elif name == "propose_viki_changeset":
-        candidates = []
     else:
         return []
     return candidates if isinstance(candidates, list) else []

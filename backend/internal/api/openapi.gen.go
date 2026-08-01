@@ -49,6 +49,12 @@ const (
 	Qa   AssistantMode = "qa"
 )
 
+// Defines values for AssistantOperationReviewValue.
+const (
+	AssistantOperationReviewValueApprove AssistantOperationReviewValue = "approve"
+	AssistantOperationReviewValueReject  AssistantOperationReviewValue = "reject"
+)
+
 // Defines values for BDDKeyword.
 const (
 	And   BDDKeyword = "and"
@@ -64,6 +70,12 @@ const (
 	Step  CommentRequestAnchorKind = "step"
 )
 
+// Defines values for ConceptKind.
+const (
+	Noun ConceptKind = "noun"
+	Verb ConceptKind = "verb"
+)
+
 // Defines values for HealthStatus.
 const (
 	Ok HealthStatus = "ok"
@@ -71,15 +83,9 @@ const (
 
 // Defines values for PageKind.
 const (
-	Primitive   PageKind = "primitive"
-	Scenario    PageKind = "scenario"
-	Subscenario PageKind = "subscenario"
-)
-
-// Defines values for PrimitiveKind.
-const (
-	Noun PrimitiveKind = "noun"
-	Verb PrimitiveKind = "verb"
+	Concept  PageKind = "concept"
+	Feature  PageKind = "feature"
+	Scenario PageKind = "scenario"
 )
 
 // Defines values for RevisionStatus.
@@ -91,8 +97,8 @@ const (
 
 // Defines values for VoteValue.
 const (
-	Approve VoteValue = "approve"
-	Reject  VoteValue = "reject"
+	VoteValueApprove VoteValue = "approve"
+	VoteValueReject  VoteValue = "reject"
 )
 
 // APIError defines model for APIError.
@@ -107,13 +113,13 @@ type APIError struct {
 type AssistantChangeOperation struct {
 	BaseRevisionId  *openapi_types.UUID               `json:"baseRevisionId,omitempty"`
 	ClientKey       *string                           `json:"clientKey,omitempty"`
+	ConceptKind     *ConceptKind                      `json:"conceptKind,omitempty"`
 	Content         RevisionContent                   `json:"content"`
 	Kind            PageKind                          `json:"kind"`
 	Operation       AssistantChangeOperationOperation `json:"operation"`
 	PageId          *openapi_types.UUID               `json:"pageId,omitempty"`
 	ParentClientKey *string                           `json:"parentClientKey,omitempty"`
 	ParentId        *openapi_types.UUID               `json:"parentId,omitempty"`
-	PrimitiveKind   *PrimitiveKind                    `json:"primitiveKind,omitempty"`
 	Slug            string                            `json:"slug"`
 }
 
@@ -165,6 +171,7 @@ type AssistantDraftProposal struct {
 	ConversationId     openapi_types.UUID           `json:"conversationId"`
 	CreatedAt          time.Time                    `json:"createdAt"`
 	Id                 openapi_types.UUID           `json:"id"`
+	OperationReviews   []AssistantOperationReview   `json:"operationReviews"`
 	Operations         []AssistantChangeOperation   `json:"operations"`
 	PublishedAt        *time.Time                   `json:"publishedAt,omitempty"`
 	PublishedRevisions []Revision                   `json:"publishedRevisions"`
@@ -201,6 +208,17 @@ type AssistantMessageRole string
 
 // AssistantMode defines model for AssistantMode.
 type AssistantMode string
+
+// AssistantOperationReview defines model for AssistantOperationReview.
+type AssistantOperationReview struct {
+	OperationKey string                        `json:"operationKey"`
+	Reason       *string                       `json:"reason,omitempty"`
+	ReviewedAt   time.Time                     `json:"reviewedAt"`
+	Value        AssistantOperationReviewValue `json:"value"`
+}
+
+// AssistantOperationReviewValue defines model for AssistantOperationReviewValue.
+type AssistantOperationReviewValue string
 
 // AssistantProfileStatus defines model for AssistantProfileStatus.
 type AssistantProfileStatus struct {
@@ -285,6 +303,9 @@ type CommentRequest struct {
 // CommentRequestAnchorKind defines model for CommentRequest.AnchorKind.
 type CommentRequestAnchorKind string
 
+// ConceptKind defines model for ConceptKind.
+type ConceptKind string
+
 // CreateAssistantConversationRequest defines model for CreateAssistantConversationRequest.
 type CreateAssistantConversationRequest struct {
 	PrimaryMode *AssistantMode `json:"primaryMode,omitempty"`
@@ -292,11 +313,11 @@ type CreateAssistantConversationRequest struct {
 
 // CreatePageRequest defines model for CreatePageRequest.
 type CreatePageRequest struct {
-	Content       RevisionContent     `json:"content"`
-	Kind          PageKind            `json:"kind"`
-	ParentId      *openapi_types.UUID `json:"parentId,omitempty"`
-	PrimitiveKind *PrimitiveKind      `json:"primitiveKind,omitempty"`
-	Slug          string              `json:"slug"`
+	ConceptKind *ConceptKind        `json:"conceptKind,omitempty"`
+	Content     RevisionContent     `json:"content"`
+	Kind        PageKind            `json:"kind"`
+	ParentId    *openapi_types.UUID `json:"parentId,omitempty"`
+	Slug        string              `json:"slug"`
 }
 
 // HealthStatus defines model for HealthStatus.
@@ -318,13 +339,13 @@ type LoginResponse struct {
 type Page struct {
 	Accepted              bool                `json:"accepted"`
 	AcceptedRevisionId    *openapi_types.UUID `json:"acceptedRevisionId,omitempty"`
+	ConceptKind           *ConceptKind        `json:"conceptKind,omitempty"`
 	CreatedAt             time.Time           `json:"createdAt"`
 	HasDraft              bool                `json:"hasDraft"`
 	Id                    openapi_types.UUID  `json:"id"`
 	Kind                  PageKind            `json:"kind"`
 	LatestDraftRevisionId *openapi_types.UUID `json:"latestDraftRevisionId,omitempty"`
 	ParentId              *openapi_types.UUID `json:"parentId,omitempty"`
-	PrimitiveKind         *PrimitiveKind      `json:"primitiveKind,omitempty"`
 	Slug                  string              `json:"slug"`
 	Title                 string              `json:"title"`
 	UnresolvedRejections  int                 `json:"unresolvedRejections"`
@@ -353,12 +374,17 @@ type PageReference struct {
 	TargetTitle     *string             `json:"targetTitle,omitempty"`
 }
 
-// PrimitiveKind defines model for PrimitiveKind.
-type PrimitiveKind string
-
 // RejectDraftProposalInput defines model for RejectDraftProposalInput.
 type RejectDraftProposalInput struct {
 	Reason string `json:"reason"`
+}
+
+// ReviewDraftProposalOperationInput defines model for ReviewDraftProposalOperationInput.
+type ReviewDraftProposalOperationInput struct {
+	// CascadeDescendants Apply the same decision atomically to child scenarios and newly proposed terms referenced by the selected feature tree.
+	CascadeDescendants *bool                         `json:"cascadeDescendants,omitempty"`
+	Reason             *string                       `json:"reason,omitempty"`
+	Value              AssistantOperationReviewValue `json:"value"`
 }
 
 // Revision defines model for Revision.
@@ -460,6 +486,9 @@ type ClarificationRequestId = string
 // ConversationId defines model for ConversationId.
 type ConversationId = openapi_types.UUID
 
+// OperationKey defines model for OperationKey.
+type OperationKey = string
+
 // PageId defines model for PageId.
 type PageId = openapi_types.UUID
 
@@ -515,6 +544,9 @@ type CreateCommentJSONRequestBody = CommentRequest
 
 // DiscardDraftProposalJSONRequestBody defines body for DiscardDraftProposal for application/json ContentType.
 type DiscardDraftProposalJSONRequestBody = RejectDraftProposalInput
+
+// ReviewDraftProposalOperationJSONRequestBody defines body for ReviewDraftProposalOperation for application/json ContentType.
+type ReviewDraftProposalOperationJSONRequestBody = ReviewDraftProposalOperationInput
 
 // CreatePageJSONRequestBody defines body for CreatePage for application/json ContentType.
 type CreatePageJSONRequestBody = CreatePageRequest

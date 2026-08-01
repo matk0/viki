@@ -24,3 +24,20 @@ func TestRejectionRequiresReasonAndBlocksPublicationUntilResolved(t *testing.T) 
 		t.Fatalf("publication after resolution: %v", err)
 	}
 }
+
+func TestVoteValidationAcceptsSupportedVotesAndRejectsUnknownValues(t *testing.T) {
+	t.Parallel()
+
+	if err := governance.ValidateVote(governance.VoteApprove, ""); err != nil {
+		t.Fatalf("approval was rejected: %v", err)
+	}
+	if err := governance.ValidateVote(governance.VoteReject, "  dôvod  "); err != nil {
+		t.Fatalf("reasoned rejection was rejected: %v", err)
+	}
+	if err := governance.ValidateVote(governance.VoteValue("abstain"), ""); !errors.Is(err, governance.ErrInvalidVote) {
+		t.Fatalf("unknown vote error = %v, want %v", err, governance.ErrInvalidVote)
+	}
+	if err := governance.CanPublish(nil); err != nil {
+		t.Fatalf("publication without blockers failed: %v", err)
+	}
+}

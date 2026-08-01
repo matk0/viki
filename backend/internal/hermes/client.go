@@ -216,12 +216,7 @@ func (c *client) run() {
 			if !waitContext(c.ctx, delay) {
 				return
 			}
-			if delay < 10*time.Second {
-				delay *= 2
-				if delay > 10*time.Second {
-					delay = 10 * time.Second
-				}
-			}
+			delay = nextReconnectDelay(delay)
 			continue
 		}
 		delay = c.options.reconnectDelay
@@ -246,6 +241,17 @@ func (c *client) run() {
 			return
 		}
 	}
+}
+
+func nextReconnectDelay(delay time.Duration) time.Duration {
+	if delay >= 10*time.Second {
+		return 10 * time.Second
+	}
+	delay *= 2
+	if delay > 10*time.Second {
+		return 10 * time.Second
+	}
+	return delay
 }
 
 func (c *client) readLoop(connection wire) error {

@@ -3,6 +3,7 @@ package hermes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -179,6 +180,58 @@ func TestManagerRealWebSocketReconnectAndDurableRotation(t *testing.T) {
 	}
 	if again.StoredID != resumed.StoredID || again.RuntimeID != "runtime-resumed-2" {
 		t.Fatalf("session was not reusable after reconnect: before=%+v after=%+v", resumed, again)
+	}
+}
+
+func TestWebSocketConnectorReportsDialAndClosedWriteFailures(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	unavailable, err := newWebSocketConnector("ws://127.0.0.1:1/api/ws", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unavailable.Connect(ctx); err == nil {
+		t.Fatal("unavailable WebSocket endpoint connected")
+	}
+
+	gateway := newFakeTUIGateway(t, "")
+	defer gateway.Close()
+	connector, err := newWebSocketConnector(gateway.WebSocketURL(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := connector.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Write(context.Background(), []byte(`{"jsonrpc":"2.0","id":"1","method":"session.status","params":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Write(context.Background(), []byte(`{}`)); err == nil {
+		t.Fatal("write to closed WebSocket succeeded")
+	}
+}
+
+type deadlineErrorConnection struct{}
+
+func (deadlineErrorConnection) ReadMessage() (int, []byte, error) {
+	return 0, nil, errors.New("unused")
+}
+func (deadlineErrorConnection) SetWriteDeadline(time.Time) error {
+	return errors.New("deadline failed")
+}
+func (deadlineErrorConnection) WriteMessage(int, []byte) error {
+	return errors.New("write must not be reached")
+}
+func (deadlineErrorConnection) Close() error { return nil }
+
+func TestWebSocketWireReportsDeadlineFailure(t *testing.T) {
+	wire := &webSocketWire{connection: deadlineErrorConnection{}}
+	if err := wire.Write(context.Background(), []byte(`{}`)); err == nil || err.Error() != "deadline failed" {
+		t.Fatalf("deadline failure = %v", err)
 	}
 }
 

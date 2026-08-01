@@ -13,9 +13,10 @@ const (
 )
 
 var (
-	ErrInvalidVote             = errors.New("invalid vote")
-	ErrRejectionReasonRequired = errors.New("rejection reason is required")
-	ErrUnresolvedRejection     = errors.New("unresolved rejection blocks publication")
+	ErrInvalidVote                = errors.New("invalid vote")
+	ErrRejectionReasonRequired    = errors.New("rejection reason is required")
+	ErrRejectedProposalDependency = errors.New("approved proposal operation depends on a rejected operation")
+	ErrUnresolvedRejection        = errors.New("unresolved rejection blocks publication")
 )
 
 type BlockingThread struct {

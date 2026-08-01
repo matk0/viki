@@ -73,7 +73,7 @@ def _call(endpoint: str, args: dict, kwargs: dict, *, edit_only: bool = False) -
             "Hermes relácia nie je priradená k spravovanému profilu viki.",
         )
     if edit_only and profile != "edit":
-        return _error("profile_forbidden", "Profil Otázky nesmie zapisovať koncepty.")
+        return _error("profile_forbidden", "Profil Otázky nesmie zapisovať drafty.")
 
     token = os.environ.get("VIKI_HERMES_TOOL_TOKEN", "").strip()
     if not token:
