@@ -57,4 +57,15 @@ describe('i18n', () => {
     render(<I18nProvider><Probe /></I18nProvider>)
     expect(screen.getByLabelText('locale')).toHaveTextContent('sk')
   })
+
+  it('keeps the document language usable when locale persistence is unavailable', () => {
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: {
+      getItem: () => null,
+    } })
+
+    render(<I18nProvider><Probe /></I18nProvider>)
+
+    expect(screen.getByLabelText('locale')).toHaveTextContent('sk')
+    expect(document.documentElement.lang).toBe('sk')
+  })
 })
