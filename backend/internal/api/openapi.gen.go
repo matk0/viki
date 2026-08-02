@@ -14,12 +14,6 @@ const (
 	SessionCookieScopes = "SessionCookie.Scopes"
 )
 
-// Defines values for AssistantChangeOperationOperation.
-const (
-	Create AssistantChangeOperationOperation = "create"
-	Revise AssistantChangeOperationOperation = "revise"
-)
-
 // Defines values for AssistantConversationState.
 const (
 	AssistantConversationStateAwaitingClarification AssistantConversationState = "awaiting_clarification"
@@ -28,13 +22,6 @@ const (
 	AssistantConversationStateRunning               AssistantConversationState = "running"
 	AssistantConversationStateStopped               AssistantConversationState = "stopped"
 	AssistantConversationStateUnavailable           AssistantConversationState = "unavailable"
-)
-
-// Defines values for AssistantDraftProposalStatus.
-const (
-	AwaitingApproval AssistantDraftProposalStatus = "awaiting_approval"
-	Discarded        AssistantDraftProposalStatus = "discarded"
-	Published        AssistantDraftProposalStatus = "published"
 )
 
 // Defines values for AssistantMessageRole.
@@ -49,12 +36,6 @@ const (
 	Qa   AssistantMode = "qa"
 )
 
-// Defines values for AssistantOperationReviewValue.
-const (
-	AssistantOperationReviewValueApprove AssistantOperationReviewValue = "approve"
-	AssistantOperationReviewValueReject  AssistantOperationReviewValue = "reject"
-)
-
 // Defines values for BDDKeyword.
 const (
 	And   BDDKeyword = "and"
@@ -64,16 +45,18 @@ const (
 	When  BDDKeyword = "when"
 )
 
-// Defines values for CommentRequestAnchorKind.
-const (
-	Field CommentRequestAnchorKind = "field"
-	Step  CommentRequestAnchorKind = "step"
-)
-
 // Defines values for ConceptKind.
 const (
 	Noun ConceptKind = "noun"
 	Verb ConceptKind = "verb"
+)
+
+// Defines values for DevelopmentStatus.
+const (
+	DevelopmentStatusBlocked   DevelopmentStatus = "blocked"
+	DevelopmentStatusDeveloped DevelopmentStatus = "developed"
+	DevelopmentStatusQueued    DevelopmentStatus = "queued"
+	DevelopmentStatusRunning   DevelopmentStatus = "running"
 )
 
 // Defines values for HealthStatus.
@@ -88,17 +71,31 @@ const (
 	Scenario PageKind = "scenario"
 )
 
-// Defines values for RevisionStatus.
+// Defines values for ReviewBlockerType.
 const (
-	Accepted   RevisionStatus = "accepted"
-	Draft      RevisionStatus = "draft"
-	Superseded RevisionStatus = "superseded"
+	ReviewBlockerTypeObjection     ReviewBlockerType = "objection"
+	ReviewBlockerTypeParentFeature ReviewBlockerType = "parent_feature"
 )
 
-// Defines values for VoteValue.
+// Defines values for ReviewReadiness.
 const (
-	VoteValueApprove VoteValue = "approve"
-	VoteValueReject  VoteValue = "reject"
+	ReviewReadinessApproved ReviewReadiness = "approved"
+	ReviewReadinessBlocked  ReviewReadiness = "blocked"
+	ReviewReadinessReady    ReviewReadiness = "ready"
+)
+
+// Defines values for RevisionStatus.
+const (
+	RevisionStatusApproved   RevisionStatus = "approved"
+	RevisionStatusDraft      RevisionStatus = "draft"
+	RevisionStatusSuperseded RevisionStatus = "superseded"
+)
+
+// Defines values for StepRole.
+const (
+	Action  StepRole = "action"
+	Context StepRole = "context"
+	Outcome StepRole = "outcome"
 )
 
 // APIError defines model for APIError.
@@ -108,23 +105,6 @@ type APIError struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
-
-// AssistantChangeOperation defines model for AssistantChangeOperation.
-type AssistantChangeOperation struct {
-	BaseRevisionId  *openapi_types.UUID               `json:"baseRevisionId,omitempty"`
-	ClientKey       *string                           `json:"clientKey,omitempty"`
-	ConceptKind     *ConceptKind                      `json:"conceptKind,omitempty"`
-	Content         RevisionContent                   `json:"content"`
-	Kind            PageKind                          `json:"kind"`
-	Operation       AssistantChangeOperationOperation `json:"operation"`
-	PageId          *openapi_types.UUID               `json:"pageId,omitempty"`
-	ParentClientKey *string                           `json:"parentClientKey,omitempty"`
-	ParentId        *openapi_types.UUID               `json:"parentId,omitempty"`
-	Slug            string                            `json:"slug"`
-}
-
-// AssistantChangeOperationOperation defines model for AssistantChangeOperation.Operation.
-type AssistantChangeOperationOperation string
 
 // AssistantClarification defines model for AssistantClarification.
 type AssistantClarification struct {
@@ -166,25 +146,6 @@ type AssistantConversationSummary struct {
 	UpdatedAt   time.Time                  `json:"updatedAt"`
 }
 
-// AssistantDraftProposal defines model for AssistantDraftProposal.
-type AssistantDraftProposal struct {
-	ConversationId     openapi_types.UUID           `json:"conversationId"`
-	CreatedAt          time.Time                    `json:"createdAt"`
-	Id                 openapi_types.UUID           `json:"id"`
-	OperationReviews   []AssistantOperationReview   `json:"operationReviews"`
-	Operations         []AssistantChangeOperation   `json:"operations"`
-	PublishedAt        *time.Time                   `json:"publishedAt,omitempty"`
-	PublishedRevisions []Revision                   `json:"publishedRevisions"`
-	RejectionReason    *string                      `json:"rejectionReason,omitempty"`
-	Status             AssistantDraftProposalStatus `json:"status"`
-	Summary            string                       `json:"summary"`
-	TurnId             openapi_types.UUID           `json:"turnId"`
-	UpdatedAt          time.Time                    `json:"updatedAt"`
-}
-
-// AssistantDraftProposalStatus defines model for AssistantDraftProposalStatus.
-type AssistantDraftProposalStatus string
-
 // AssistantDraftReceipt defines model for AssistantDraftReceipt.
 type AssistantDraftReceipt struct {
 	PageId     openapi_types.UUID `json:"pageId"`
@@ -208,17 +169,6 @@ type AssistantMessageRole string
 
 // AssistantMode defines model for AssistantMode.
 type AssistantMode string
-
-// AssistantOperationReview defines model for AssistantOperationReview.
-type AssistantOperationReview struct {
-	OperationKey string                        `json:"operationKey"`
-	Reason       *string                       `json:"reason,omitempty"`
-	ReviewedAt   time.Time                     `json:"reviewedAt"`
-	Value        AssistantOperationReviewValue `json:"value"`
-}
-
-// AssistantOperationReviewValue defines model for AssistantOperationReviewValue.
-type AssistantOperationReviewValue string
 
 // AssistantProfileStatus defines model for AssistantProfileStatus.
 type AssistantProfileStatus struct {
@@ -258,11 +208,14 @@ type BDDKeyword string
 
 // BDDStep defines model for BDDStep.
 type BDDStep struct {
-	Id       *openapi_types.UUID `json:"id,omitempty"`
-	Keyword  BDDKeyword          `json:"keyword"`
-	Position *int                `json:"position,omitempty"`
-	StableId *openapi_types.UUID `json:"stableId,omitempty"`
-	Text     string              `json:"text"`
+	Arguments    []string            `json:"arguments"`
+	DefinitionId *openapi_types.UUID `json:"definitionId,omitempty"`
+	Expression   *string             `json:"expression,omitempty"`
+	Id           *openapi_types.UUID `json:"id,omitempty"`
+	Keyword      BDDKeyword          `json:"keyword"`
+	Position     *int                `json:"position,omitempty"`
+	StableId     *openapi_types.UUID `json:"stableId,omitempty"`
+	Text         string              `json:"text"`
 }
 
 // Citation defines model for Citation.
@@ -275,33 +228,23 @@ type Citation struct {
 
 // Comment defines model for Comment.
 type Comment struct {
-	AnchorId        *string             `json:"anchorId,omitempty"`
-	AnchorKind      *string             `json:"anchorKind,omitempty"`
 	Author          User                `json:"author"`
-	Blocking        bool                `json:"blocking"`
 	Body            string              `json:"body"`
 	CreatedAt       time.Time           `json:"createdAt"`
 	Id              openapi_types.UUID  `json:"id"`
 	PageId          openapi_types.UUID  `json:"pageId"`
 	ParentCommentId *openapi_types.UUID `json:"parentCommentId,omitempty"`
 	Replies         []Comment           `json:"replies"`
-	ResolvedAt      *time.Time          `json:"resolvedAt,omitempty"`
-	ResolvedBy      *User               `json:"resolvedBy,omitempty"`
 	RevisionId      openapi_types.UUID  `json:"revisionId"`
 }
 
 // CommentRequest defines model for CommentRequest.
 type CommentRequest struct {
-	AnchorId        *string                   `json:"anchorId,omitempty"`
-	AnchorKind      *CommentRequestAnchorKind `json:"anchorKind,omitempty"`
-	Body            string                    `json:"body"`
-	PageId          openapi_types.UUID        `json:"pageId"`
-	ParentCommentId *openapi_types.UUID       `json:"parentCommentId,omitempty"`
-	RevisionId      openapi_types.UUID        `json:"revisionId"`
+	Body            string              `json:"body"`
+	PageId          openapi_types.UUID  `json:"pageId"`
+	ParentCommentId *openapi_types.UUID `json:"parentCommentId,omitempty"`
+	RevisionId      openapi_types.UUID  `json:"revisionId"`
 }
-
-// CommentRequestAnchorKind defines model for CommentRequest.AnchorKind.
-type CommentRequestAnchorKind string
 
 // ConceptKind defines model for ConceptKind.
 type ConceptKind string
@@ -313,15 +256,25 @@ type CreateAssistantConversationRequest struct {
 
 // CreatePageRequest defines model for CreatePageRequest.
 type CreatePageRequest struct {
-	ConceptKind *ConceptKind        `json:"conceptKind,omitempty"`
-	Content     RevisionContent     `json:"content"`
-	Kind        PageKind            `json:"kind"`
-	ParentId    *openapi_types.UUID `json:"parentId,omitempty"`
-	Slug        string              `json:"slug"`
+	ConceptKind     *ConceptKind            `json:"conceptKind,omitempty"`
+	Content         RevisionContent         `json:"content"`
+	InitialScenario *InitialScenarioRequest `json:"initialScenario,omitempty"`
+	Kind            PageKind                `json:"kind"`
+	ParentId        *openapi_types.UUID     `json:"parentId,omitempty"`
+	Slug            string                  `json:"slug"`
 }
+
+// DevelopmentStatus defines model for DevelopmentStatus.
+type DevelopmentStatus string
 
 // HealthStatus defines model for HealthStatus.
 type HealthStatus string
+
+// InitialScenarioRequest defines model for InitialScenarioRequest.
+type InitialScenarioRequest struct {
+	Content RevisionContent `json:"content"`
+	Slug    string          `json:"slug"`
+}
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
@@ -335,12 +288,32 @@ type LoginResponse struct {
 	User      User   `json:"user"`
 }
 
+// Objection defines model for Objection.
+type Objection struct {
+	Author         User               `json:"author"`
+	Body           string             `json:"body"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	Id             openapi_types.UUID `json:"id"`
+	PageId         openapi_types.UUID `json:"pageId"`
+	ResolvedAt     *time.Time         `json:"resolvedAt,omitempty"`
+	ResolvedBy     *User              `json:"resolvedBy,omitempty"`
+	RevisionId     openapi_types.UUID `json:"revisionId"`
+	RevisionNumber int                `json:"revisionNumber"`
+}
+
+// ObjectionRequest defines model for ObjectionRequest.
+type ObjectionRequest struct {
+	Reason string `json:"reason"`
+}
+
 // Page defines model for Page.
 type Page struct {
-	Accepted              bool                `json:"accepted"`
-	AcceptedRevisionId    *openapi_types.UUID `json:"acceptedRevisionId,omitempty"`
+	Approved              bool                `json:"approved"`
+	ApprovedRevisionId    *openapi_types.UUID `json:"approvedRevisionId,omitempty"`
+	ApprovedRevisionTitle *string             `json:"approvedRevisionTitle,omitempty"`
 	ConceptKind           *ConceptKind        `json:"conceptKind,omitempty"`
 	CreatedAt             time.Time           `json:"createdAt"`
+	DraftRevisionTitle    *string             `json:"draftRevisionTitle,omitempty"`
 	HasDraft              bool                `json:"hasDraft"`
 	Id                    openapi_types.UUID  `json:"id"`
 	Kind                  PageKind            `json:"kind"`
@@ -348,19 +321,21 @@ type Page struct {
 	ParentId              *openapi_types.UUID `json:"parentId,omitempty"`
 	Slug                  string              `json:"slug"`
 	Title                 string              `json:"title"`
-	UnresolvedRejections  int                 `json:"unresolvedRejections"`
+	UnresolvedObjections  int                 `json:"unresolvedObjections"`
 	UpdatedAt             time.Time           `json:"updatedAt"`
 }
 
 // PageDetail defines model for PageDetail.
 type PageDetail struct {
-	AcceptedRevision *Revision         `json:"acceptedRevision,omitempty"`
-	Children         []Page            `json:"children"`
-	Comments         []Comment         `json:"comments"`
-	DraftRevision    *Revision         `json:"draftRevision,omitempty"`
-	Page             Page              `json:"page"`
-	Revisions        []RevisionSummary `json:"revisions"`
-	Votes            []Vote            `json:"votes"`
+	ApprovedRevision *Revision             `json:"approvedRevision,omitempty"`
+	Children         []Page                `json:"children"`
+	Comments         []Comment             `json:"comments"`
+	Development      *ScenarioDevelopment  `json:"development,omitempty"`
+	DraftRevision    *Revision             `json:"draftRevision,omitempty"`
+	Objections       []Objection           `json:"objections"`
+	Page             Page                  `json:"page"`
+	ReviewStates     []RevisionReviewState `json:"reviewStates"`
+	Revisions        []RevisionSummary     `json:"revisions"`
 }
 
 // PageKind defines model for PageKind.
@@ -374,23 +349,27 @@ type PageReference struct {
 	TargetTitle     *string             `json:"targetTitle,omitempty"`
 }
 
-// RejectDraftProposalInput defines model for RejectDraftProposalInput.
-type RejectDraftProposalInput struct {
-	Reason string `json:"reason"`
+// ReviewBlocker defines model for ReviewBlocker.
+type ReviewBlocker struct {
+	Author               *User               `json:"author,omitempty"`
+	Body                 *string             `json:"body,omitempty"`
+	Id                   openapi_types.UUID  `json:"id"`
+	RelatedPageId        *openapi_types.UUID `json:"relatedPageId,omitempty"`
+	RelatedPageTitle     *string             `json:"relatedPageTitle,omitempty"`
+	SourceRevisionId     *openapi_types.UUID `json:"sourceRevisionId,omitempty"`
+	SourceRevisionNumber *int                `json:"sourceRevisionNumber,omitempty"`
+	Type                 ReviewBlockerType   `json:"type"`
 }
 
-// ReviewDraftProposalOperationInput defines model for ReviewDraftProposalOperationInput.
-type ReviewDraftProposalOperationInput struct {
-	// CascadeDescendants Apply the same decision atomically to child scenarios and newly proposed terms referenced by the selected feature tree.
-	CascadeDescendants *bool                         `json:"cascadeDescendants,omitempty"`
-	Reason             *string                       `json:"reason,omitempty"`
-	Value              AssistantOperationReviewValue `json:"value"`
-}
+// ReviewBlockerType defines model for ReviewBlockerType.
+type ReviewBlockerType string
+
+// ReviewReadiness defines model for ReviewReadiness.
+type ReviewReadiness string
 
 // Revision defines model for Revision.
 type Revision struct {
-	AcceptedAt     *time.Time          `json:"acceptedAt,omitempty"`
-	Aliases        []string            `json:"aliases"`
+	ApprovedAt     *time.Time          `json:"approvedAt,omitempty"`
 	BaseRevisionId *openapi_types.UUID `json:"baseRevisionId,omitempty"`
 	BodyMd         string              `json:"bodyMd"`
 	CreatedAt      time.Time           `json:"createdAt"`
@@ -406,11 +385,17 @@ type Revision struct {
 
 // RevisionContent defines model for RevisionContent.
 type RevisionContent struct {
-	Aliases    []string        `json:"aliases"`
 	BodyMd     string          `json:"bodyMd"`
 	References []PageReference `json:"references"`
 	Steps      []BDDStep       `json:"steps"`
 	Title      string          `json:"title"`
+}
+
+// RevisionReviewState defines model for RevisionReviewState.
+type RevisionReviewState struct {
+	Blockers   []ReviewBlocker    `json:"blockers"`
+	RevisionId openapi_types.UUID `json:"revisionId"`
+	State      ReviewReadiness    `json:"state"`
 }
 
 // RevisionStatus defines model for RevisionStatus.
@@ -418,7 +403,7 @@ type RevisionStatus string
 
 // RevisionSummary defines model for RevisionSummary.
 type RevisionSummary struct {
-	AcceptedAt *time.Time         `json:"acceptedAt,omitempty"`
+	ApprovedAt *time.Time         `json:"approvedAt,omitempty"`
 	CreatedAt  time.Time          `json:"createdAt"`
 	CreatedBy  User               `json:"createdBy"`
 	Id         openapi_types.UUID `json:"id"`
@@ -433,6 +418,14 @@ type SaveRevisionRequest struct {
 	Content        RevisionContent    `json:"content"`
 }
 
+// ScenarioDevelopment defines model for ScenarioDevelopment.
+type ScenarioDevelopment struct {
+	Detail     string             `json:"detail"`
+	RevisionId openapi_types.UUID `json:"revisionId"`
+	Status     DevelopmentStatus  `json:"status"`
+	UpdatedAt  time.Time          `json:"updatedAt"`
+}
+
 // SearchResult defines model for SearchResult.
 type SearchResult struct {
 	Draft      bool               `json:"draft"`
@@ -441,6 +434,18 @@ type SearchResult struct {
 	RevisionId openapi_types.UUID `json:"revisionId"`
 	Score      float32            `json:"score"`
 }
+
+// StepDefinition defines model for StepDefinition.
+type StepDefinition struct {
+	Approved   bool               `json:"approved"`
+	Expression string             `json:"expression"`
+	Id         openapi_types.UUID `json:"id"`
+	Role       StepRole           `json:"role"`
+	UsageCount int                `json:"usageCount"`
+}
+
+// StepRole defines model for StepRole.
+type StepRole string
 
 // SubmitAssistantMessageRequest defines model for SubmitAssistantMessageRequest.
 type SubmitAssistantMessageRequest struct {
@@ -461,39 +466,14 @@ type User struct {
 	Id          openapi_types.UUID  `json:"id"`
 }
 
-// Vote defines model for Vote.
-type Vote struct {
-	CommentId  *openapi_types.UUID `json:"commentId,omitempty"`
-	CreatedAt  time.Time           `json:"createdAt"`
-	RevisionId openapi_types.UUID  `json:"revisionId"`
-	User       User                `json:"user"`
-	Value      VoteValue           `json:"value"`
-}
-
-// VoteRequest defines model for VoteRequest.
-type VoteRequest struct {
-	// Reason Required when value is reject.
-	Reason *string   `json:"reason,omitempty"`
-	Value  VoteValue `json:"value"`
-}
-
-// VoteValue defines model for VoteValue.
-type VoteValue string
-
 // ClarificationRequestId defines model for ClarificationRequestId.
 type ClarificationRequestId = string
 
 // ConversationId defines model for ConversationId.
 type ConversationId = openapi_types.UUID
 
-// OperationKey defines model for OperationKey.
-type OperationKey = string
-
 // PageId defines model for PageId.
 type PageId = openapi_types.UUID
-
-// ProposalId defines model for ProposalId.
-type ProposalId = openapi_types.UUID
 
 // RevisionId defines model for RevisionId.
 type RevisionId = openapi_types.UUID
@@ -524,6 +504,12 @@ type ListOrSearchPagesParams struct {
 	IncludeDrafts *bool     `form:"includeDrafts,omitempty" json:"includeDrafts,omitempty"`
 }
 
+// ListStepDefinitionsParams defines parameters for ListStepDefinitions.
+type ListStepDefinitionsParams struct {
+	Q    *string   `form:"q,omitempty" json:"q,omitempty"`
+	Role *StepRole `form:"role,omitempty" json:"role,omitempty"`
+}
+
 // CreateAssistantConversationJSONRequestBody defines body for CreateAssistantConversation for application/json ContentType.
 type CreateAssistantConversationJSONRequestBody = CreateAssistantConversationRequest
 
@@ -542,17 +528,11 @@ type LoginJSONRequestBody = LoginRequest
 // CreateCommentJSONRequestBody defines body for CreateComment for application/json ContentType.
 type CreateCommentJSONRequestBody = CommentRequest
 
-// DiscardDraftProposalJSONRequestBody defines body for DiscardDraftProposal for application/json ContentType.
-type DiscardDraftProposalJSONRequestBody = RejectDraftProposalInput
-
-// ReviewDraftProposalOperationJSONRequestBody defines body for ReviewDraftProposalOperation for application/json ContentType.
-type ReviewDraftProposalOperationJSONRequestBody = ReviewDraftProposalOperationInput
-
 // CreatePageJSONRequestBody defines body for CreatePage for application/json ContentType.
 type CreatePageJSONRequestBody = CreatePageRequest
 
 // SaveRevisionJSONRequestBody defines body for SaveRevision for application/json ContentType.
 type SaveRevisionJSONRequestBody = SaveRevisionRequest
 
-// SetVoteJSONRequestBody defines body for SetVote for application/json ContentType.
-type SetVoteJSONRequestBody = VoteRequest
+// RaiseObjectionJSONRequestBody defines body for RaiseObjection for application/json ContentType.
+type RaiseObjectionJSONRequestBody = ObjectionRequest

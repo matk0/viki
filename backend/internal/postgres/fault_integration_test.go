@@ -235,13 +235,17 @@ func newFaultFixture(t *testing.T) *faultFixture {
 	noun := model.ConceptNoun
 	page, err := repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
 		Kind: model.PageConcept, ConceptKind: &noun, Slug: "fault-" + strings.ToLower(uuid.NewString()),
-		Content: model.RevisionContent{Title: "Fault concept", BodyMD: "Fault body", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-	}, model.RevisionAccepted)
+		Content: model.RevisionContent{Title: "Fault concept", BodyMD: "Fault body", Steps: []model.Step{}, References: []model.PageReference{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, page.DraftRevision.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fixture.pageID = page.Page.ID
-	fixture.revisionID = page.AcceptedRevision.ID
+	fixture.revisionID = page.ApprovedRevision.ID
 	if _, err := pool.Exec(fixture.ctx, `
 		INSERT INTO audit_events(organization_id, actor_id, action, entity_type, entity_id, metadata)
 		VALUES ($1, $2, 'page.created', 'page', $3, '{}'::jsonb)
@@ -335,7 +339,7 @@ func simpleConceptChangeSet(slug string) model.AIChangeSet {
 		Summary: "Create concept",
 		Operations: []model.AIChangeOperation{{
 			Operation: "create", ClientKey: "concept", Kind: model.PageConcept, ConceptKind: &noun, Slug: slug,
-			Content: model.RevisionContent{Title: "Concept", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
+			Content: model.RevisionContent{Title: "Concept", Steps: []model.Step{}, References: []model.PageReference{}},
 		}},
 	}
 }
@@ -354,41 +358,13 @@ func TestRepositoryMutationsPropagateBeginFailures(t *testing.T) {
 			},
 		},
 		{
-			name: "stage assistant proposal", method: "begin",
-			run: func(f *faultFixture) error {
-				_, err := f.repository.StageAssistantDraftProposal(f.ctx, f.organizationID, f.userID, model.AssistantMutationContext{ConversationID: f.conversationID, TurnID: uuid.NewString()}, simpleConceptChangeSet("stage-begin"))
-				return err
-			},
-		},
-		{
-			name: "review assistant proposal", method: "begin_tx",
-			run: func(f *faultFixture) error {
-				_, err := f.repository.ReviewAssistantDraftProposalOperation(f.ctx, f.organizationID, f.userID, uuid.NewString(), "operation", model.AssistantReviewApprove, "", false)
-				return err
-			},
-		},
-		{
-			name: "publish assistant proposal", method: "begin_tx",
-			run: func(f *faultFixture) error {
-				_, err := f.repository.PublishAssistantDraftProposal(f.ctx, f.organizationID, f.userID, uuid.NewString())
-				return err
-			},
-		},
-		{
-			name: "discard assistant proposal", method: "begin",
-			run: func(f *faultFixture) error {
-				_, err := f.repository.DiscardAssistantDraftProposal(f.ctx, f.organizationID, f.userID, uuid.NewString(), "Reason")
-				return err
-			},
-		},
-		{
 			name: "create page", method: "begin_tx",
 			run: func(f *faultFixture) error {
 				noun := model.ConceptNoun
 				_, err := f.repository.CreatePage(f.ctx, f.organizationID, f.userID, model.CreatePageInput{
 					Kind: model.PageConcept, ConceptKind: &noun, Slug: "create-begin",
-					Content: model.RevisionContent{Title: "Concept", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-				}, model.RevisionDraft)
+					Content: model.RevisionContent{Title: "Concept", Steps: []model.Step{}, References: []model.PageReference{}},
+				})
 				return err
 			},
 		},
@@ -400,30 +376,30 @@ func TestRepositoryMutationsPropagateBeginFailures(t *testing.T) {
 			},
 		},
 		{
-			name: "publish revision", method: "begin_tx",
+			name: "approve revision", method: "begin_tx",
 			run: func(f *faultFixture) error {
-				_, err := f.repository.PublishRevision(f.ctx, f.organizationID, f.userID, f.revisionID)
+				_, err := f.repository.ApproveRevision(f.ctx, f.organizationID, f.userID, f.revisionID)
 				return err
 			},
 		},
 		{
 			name: "add comment", method: "begin",
 			run: func(f *faultFixture) error {
-				_, err := f.repository.AddComment(f.ctx, f.organizationID, f.userID, f.pageID, f.revisionID, nil, nil, nil, "Comment", false)
+				_, err := f.repository.AddComment(f.ctx, f.organizationID, f.userID, f.pageID, f.revisionID, nil, "Comment")
 				return err
 			},
 		},
 		{
-			name: "resolve comment", method: "begin",
+			name: "add objection", method: "begin",
 			run: func(f *faultFixture) error {
-				_, err := f.repository.ResolveComment(f.ctx, f.organizationID, f.userID, uuid.NewString())
+				_, err := f.repository.AddObjection(f.ctx, f.organizationID, f.userID, f.revisionID, "Reason")
 				return err
 			},
 		},
 		{
-			name: "vote", method: "begin",
+			name: "resolve objection", method: "begin",
 			run: func(f *faultFixture) error {
-				_, err := f.repository.SetVote(f.ctx, f.organizationID, f.userID, f.revisionID, governance.VoteApprove, "")
+				_, err := f.repository.ResolveObjection(f.ctx, f.organizationID, f.userID, uuid.NewString())
 				return err
 			},
 		},
@@ -441,29 +417,6 @@ func TestRepositoryMutationsPropagateBeginFailures(t *testing.T) {
 	}
 }
 
-func stageFaultProposal(t *testing.T, fixture *faultFixture, operations int) model.AssistantDraftProposal {
-	t.Helper()
-	changeSet := simpleConceptChangeSet("proposal-" + uuid.NewString())
-	if operations > 1 {
-		noun := model.ConceptNoun
-		changeSet.Operations = append(changeSet.Operations, model.AIChangeOperation{
-			Operation: "create", ClientKey: "second", Kind: model.PageConcept, ConceptKind: &noun, Slug: "proposal-" + uuid.NewString(),
-			Content: model.RevisionContent{Title: "Second", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-		})
-	}
-	proposal, err := fixture.repository.StageAssistantDraftProposal(
-		fixture.ctx,
-		fixture.organizationID,
-		fixture.userID,
-		model.AssistantMutationContext{ConversationID: fixture.conversationID, TurnID: uuid.NewString()},
-		changeSet,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return proposal
-}
-
 func TestRepositoryMutationsPropagateCommitFailures(t *testing.T) {
 	tests := []struct {
 		name string
@@ -477,50 +430,13 @@ func TestRepositoryMutationsPropagateCommitFailures(t *testing.T) {
 			},
 		},
 		{
-			name: "stage assistant proposal",
-			run: func(_ *testing.T, f *faultFixture) error {
-				_, err := f.repository.StageAssistantDraftProposal(f.ctx, f.organizationID, f.userID, model.AssistantMutationContext{ConversationID: f.conversationID, TurnID: uuid.NewString()}, simpleConceptChangeSet("stage-"+uuid.NewString()))
-				return err
-			},
-		},
-		{
-			name: "review assistant proposal",
-			run: func(t *testing.T, f *faultFixture) error {
-				f.fault.activate("", "", 0)
-				proposal := stageFaultProposal(t, f, 1)
-				f.fault.activate("commit", "", 1)
-				_, err := f.repository.ReviewAssistantDraftProposalOperation(f.ctx, f.organizationID, f.userID, proposal.ID, "concept", model.AssistantReviewApprove, "", false)
-				return err
-			},
-		},
-		{
-			name: "publish assistant proposal",
-			run: func(t *testing.T, f *faultFixture) error {
-				f.fault.activate("", "", 0)
-				proposal := stageFaultProposal(t, f, 1)
-				f.fault.activate("commit", "", 1)
-				_, err := f.repository.PublishAssistantDraftProposal(f.ctx, f.organizationID, f.userID, proposal.ID)
-				return err
-			},
-		},
-		{
-			name: "discard assistant proposal",
-			run: func(t *testing.T, f *faultFixture) error {
-				f.fault.activate("", "", 0)
-				proposal := stageFaultProposal(t, f, 1)
-				f.fault.activate("commit", "", 1)
-				_, err := f.repository.DiscardAssistantDraftProposal(f.ctx, f.organizationID, f.userID, proposal.ID, "Reason")
-				return err
-			},
-		},
-		{
 			name: "create page",
 			run: func(_ *testing.T, f *faultFixture) error {
 				noun := model.ConceptNoun
 				_, err := f.repository.CreatePage(f.ctx, f.organizationID, f.userID, model.CreatePageInput{
 					Kind: model.PageConcept, ConceptKind: &noun, Slug: "create-" + uuid.NewString(),
-					Content: model.RevisionContent{Title: "Concept", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-				}, model.RevisionDraft)
+					Content: model.RevisionContent{Title: "Concept", Steps: []model.Step{}, References: []model.PageReference{}},
+				})
 				return err
 			},
 		},
@@ -529,51 +445,51 @@ func TestRepositoryMutationsPropagateCommitFailures(t *testing.T) {
 			run: func(_ *testing.T, f *faultFixture) error {
 				_, err := f.repository.SaveRevision(f.ctx, f.organizationID, f.userID, f.pageID, model.SaveRevisionInput{
 					BaseRevisionID: f.revisionID,
-					Content:        model.RevisionContent{Title: "Updated", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
+					Content:        model.RevisionContent{Title: "Updated", Steps: []model.Step{}, References: []model.PageReference{}},
 				})
 				return err
 			},
 		},
 		{
-			name: "publish revision",
+			name: "approve revision",
 			run: func(t *testing.T, f *faultFixture) error {
 				f.fault.activate("", "", 0)
 				draft, err := f.repository.SaveRevision(f.ctx, f.organizationID, f.userID, f.pageID, model.SaveRevisionInput{
 					BaseRevisionID: f.revisionID,
-					Content:        model.RevisionContent{Title: "Draft", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
+					Content:        model.RevisionContent{Title: "Draft", Steps: []model.Step{}, References: []model.PageReference{}},
 				})
 				if err != nil {
 					t.Fatal(err)
 				}
 				f.fault.activate("commit", "", 1)
-				_, err = f.repository.PublishRevision(f.ctx, f.organizationID, f.userID, draft.ID)
+				_, err = f.repository.ApproveRevision(f.ctx, f.organizationID, f.userID, draft.ID)
 				return err
 			},
 		},
 		{
 			name: "add comment",
 			run: func(_ *testing.T, f *faultFixture) error {
-				_, err := f.repository.AddComment(f.ctx, f.organizationID, f.userID, f.pageID, f.revisionID, nil, nil, nil, "Comment", false)
+				_, err := f.repository.AddComment(f.ctx, f.organizationID, f.userID, f.pageID, f.revisionID, nil, "Comment")
 				return err
 			},
 		},
 		{
-			name: "resolve comment",
+			name: "add objection",
+			run: func(_ *testing.T, f *faultFixture) error {
+				_, err := f.repository.AddObjection(f.ctx, f.organizationID, f.userID, f.revisionID, "Reason")
+				return err
+			},
+		},
+		{
+			name: "resolve objection",
 			run: func(t *testing.T, f *faultFixture) error {
 				f.fault.activate("", "", 0)
-				comment, err := f.repository.AddComment(f.ctx, f.organizationID, f.userID, f.pageID, f.revisionID, nil, nil, nil, "Comment", false)
+				objection, err := f.repository.AddObjection(f.ctx, f.organizationID, f.userID, f.revisionID, "Reason")
 				if err != nil {
 					t.Fatal(err)
 				}
 				f.fault.activate("commit", "", 1)
-				_, err = f.repository.ResolveComment(f.ctx, f.organizationID, f.userID, comment.ID)
-				return err
-			},
-		},
-		{
-			name: "vote",
-			run: func(_ *testing.T, f *faultFixture) error {
-				_, err := f.repository.SetVote(f.ctx, f.organizationID, f.userID, f.revisionID, governance.VoteApprove, "")
+				_, err = f.repository.ResolveObjection(f.ctx, f.organizationID, f.userID, objection.ID)
 				return err
 			},
 		},
@@ -592,7 +508,7 @@ func TestRepositoryMutationsPropagateCommitFailures(t *testing.T) {
 }
 
 func conceptContent(title string) model.RevisionContent {
-	return model.RevisionContent{Title: title, Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}}
+	return model.RevisionContent{Title: title, Steps: []model.Step{}, References: []model.PageReference{}}
 }
 
 func scenarioSteps() []model.Step {
@@ -620,22 +536,45 @@ func TestCreatePageValidationAndInternalFailures(t *testing.T) {
 	fixture := newFaultFixture(t)
 	noun := model.ConceptNoun
 	valid := model.CreatePageInput{Kind: model.PageConcept, ConceptKind: &noun, Slug: "new-page", Content: conceptContent("New page")}
+	validFeature := func() model.CreatePageInput {
+		return model.CreatePageInput{
+			Kind: model.PageFeature, Slug: "feature-" + uuid.NewString(), Content: conceptContent("Feature"),
+			InitialScenario: &model.InitialScenarioInput{
+				Slug:    "scenario-" + uuid.NewString(),
+				Content: model.RevisionContent{Title: "Initial scenario", Steps: scenarioSteps()},
+			},
+		}
+	}
 
 	for name, run := range map[string]func() error{
 		"invalid slug": func() error {
 			input := valid
 			input.Slug = "Invalid slug"
-			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input, model.RevisionDraft)
-			return err
-		},
-		"invalid status": func() error {
-			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, valid, model.RevisionStatus("invalid"))
+			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input)
 			return err
 		},
 		"invalid content": func() error {
 			input := valid
 			input.Content.Title = ""
-			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input, model.RevisionDraft)
+			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input)
+			return err
+		},
+		"initial scenario on concept": func() error {
+			input := valid
+			input.InitialScenario = validFeature().InitialScenario
+			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input)
+			return err
+		},
+		"invalid initial scenario slug": func() error {
+			input := validFeature()
+			input.InitialScenario.Slug = "Invalid scenario"
+			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input)
+			return err
+		},
+		"invalid initial scenario content": func() error {
+			input := validFeature()
+			input.InitialScenario.Content.Steps = nil
+			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input)
 			return err
 		},
 	} {
@@ -648,13 +587,18 @@ func TestCreatePageValidationAndInternalFailures(t *testing.T) {
 
 	duplicate := valid
 	duplicate.Slug = fixture.repository.repositorySlug(t, fixture.pageID)
-	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, duplicate, model.RevisionDraft); !errors.Is(err, store.ErrDuplicateSlug) {
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, duplicate); !errors.Is(err, store.ErrDuplicateSlug) {
 		t.Fatalf("expected duplicate slug, got %v", err)
+	}
+	duplicateInitialScenario := validFeature()
+	duplicateInitialScenario.InitialScenario.Slug = fixture.repository.repositorySlug(t, fixture.pageID)
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, duplicateInitialScenario); !errors.Is(err, store.ErrDuplicateSlug) {
+		t.Fatalf("expected duplicate initial scenario slug, got %v", err)
 	}
 
 	parentID := fixture.pageID
-	scenario := model.CreatePageInput{Kind: model.PageScenario, ParentID: &parentID, Slug: "invalid-parent", Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), Aliases: []string{}, References: []model.PageReference{}}}
-	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, scenario, model.RevisionDraft); !errors.Is(err, store.ErrInvalidHierarchy) {
+	scenario := model.CreatePageInput{Kind: model.PageScenario, ParentID: &parentID, Slug: "invalid-parent", Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}}}
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, scenario); !errors.Is(err, store.ErrInvalidHierarchy) {
 		t.Fatalf("expected invalid parent hierarchy, got %v", err)
 	}
 
@@ -672,7 +616,24 @@ func TestCreatePageValidationAndInternalFailures(t *testing.T) {
 			input := test.input
 			input.Slug = strings.ReplaceAll(test.name, " ", "-") + "-" + uuid.NewString()
 			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input, model.RevisionDraft)
+			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, input)
+			requireInjectedFailure(t, err)
+			fixture.fault.activate("", "", 0)
+		})
+	}
+
+	for _, test := range []struct {
+		name, method, contains string
+		occurrence             int
+	}{
+		{name: "initial scenario page insert", method: "tx_query_row", contains: "INSERT INTO pages", occurrence: 2},
+		{name: "initial scenario revision insert", method: "tx_query_row", contains: "INSERT INTO revisions", occurrence: 2},
+		{name: "initial scenario page pointer", method: "tx_exec", contains: "UPDATE pages SET latest_draft_revision_id", occurrence: 2},
+		{name: "initial scenario audit", method: "tx_exec", contains: "INSERT INTO audit_events", occurrence: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture.fault.activate(test.method, test.contains, test.occurrence)
+			_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, validFeature())
 			requireInjectedFailure(t, err)
 			fixture.fault.activate("", "", 0)
 		})
@@ -692,29 +653,29 @@ func TestCreatePageRevisionChildFailures(t *testing.T) {
 	fixture := newFaultFixture(t)
 	noun := model.ConceptNoun
 
-	aliasesNil := model.CreatePageInput{Kind: model.PageConcept, ConceptKind: &noun, Slug: "nil-aliases-" + uuid.NewString(), Content: model.RevisionContent{Title: "Nil aliases"}}
-	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, aliasesNil, model.RevisionDraft); err != nil {
+	minimalInput := model.CreatePageInput{Kind: model.PageConcept, ConceptKind: &noun, Slug: "minimal-content-" + uuid.NewString(), Content: model.RevisionContent{Title: "Minimal content"}}
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, minimalInput); err != nil {
 		t.Fatal(err)
 	}
 
 	feature, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
 		Kind: model.PageFeature, Slug: "feature-" + uuid.NewString(), Content: conceptContent("Feature"),
-	}, model.RevisionAccepted)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	parentID := feature.Page.ID
-	scenario := model.CreatePageInput{Kind: model.PageScenario, ParentID: &parentID, Slug: "scenario-" + uuid.NewString(), Content: model.RevisionContent{Title: "Scenario", Aliases: []string{}, Steps: scenarioSteps(), References: []model.PageReference{}}}
+	scenario := model.CreatePageInput{Kind: model.PageScenario, ParentID: &parentID, Slug: "scenario-" + uuid.NewString(), Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}}}
 	fixture.fault.activate("tx_exec", "INSERT INTO bdd_steps", 1)
-	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, scenario, model.RevisionDraft); !errors.Is(err, errInjectedDatabase) {
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, scenario); !errors.Is(err, errInjectedDatabase) {
 		t.Fatalf("expected BDD insert failure, got %v", err)
 	}
 
 	invalidReference := model.CreatePageInput{Kind: model.PageFeature, Slug: "invalid-reference-" + uuid.NewString(), Content: model.RevisionContent{
-		Title: "Invalid reference", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{{TargetPageID: uuid.NewString(), Relation: "uses"}},
+		Title: "Invalid reference", Steps: []model.Step{}, References: []model.PageReference{{TargetPageID: uuid.NewString(), Relation: "uses"}},
 	}}
 	fixture.fault.activate("", "", 0)
-	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, invalidReference, model.RevisionDraft); !errors.Is(err, store.ErrInvalidReference) {
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, invalidReference); !errors.Is(err, store.ErrInvalidReference) {
 		t.Fatalf("expected invalid reference, got %v", err)
 	}
 
@@ -722,8 +683,63 @@ func TestCreatePageRevisionChildFailures(t *testing.T) {
 	validReference.Slug = "valid-reference-" + uuid.NewString()
 	validReference.Content.References[0].TargetPageID = fixture.pageID
 	fixture.fault.activate("tx_exec", "INSERT INTO page_references", 1)
-	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, validReference, model.RevisionDraft); !errors.Is(err, errInjectedDatabase) {
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, validReference); !errors.Is(err, errInjectedDatabase) {
 		t.Fatalf("expected reference insert failure, got %v", err)
+	}
+}
+
+func TestReusableStepDefinitionFailures(t *testing.T) {
+	fixture := newFaultFixture(t)
+	var definitionID string
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		INSERT INTO step_definitions(organization_id, expression, role, approved_at)
+		VALUES ($1, 'an approved action', 'action', now())
+		RETURNING id::text
+	`, fixture.organizationID).Scan(&definitionID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct{ name, method string }{
+		{name: "query", method: "query"},
+		{name: "scan", method: "rows_scan"},
+		{name: "rows", method: "rows_error"},
+	} {
+		t.Run("catalog "+test.name, func(t *testing.T) {
+			fixture.fault.activate(test.method, "FROM step_definitions", 1)
+			_, err := fixture.repository.ListStepDefinitions(fixture.ctx, fixture.organizationID, "approved", nil)
+			requireInjectedFailure(t, err)
+			fixture.fault.activate("", "", 0)
+		})
+	}
+
+	insert := func(t *testing.T, steps []model.Step, activate func()) error {
+		t.Helper()
+		tx, err := fixture.pool.BeginTx(fixture.ctx, pgx.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(fixture.ctx) }()
+		wrapped := &faultTx{Tx: tx, fault: fixture.fault}
+		if activate != nil {
+			activate()
+		}
+		_, err = fixture.repository.insertRevision(fixture.ctx, wrapped, fixture.organizationID, fixture.pageID, fixture.userID, 999, nil, model.RevisionContent{Title: "Step failure", Steps: steps})
+		fixture.fault.activate("", "", 0)
+		return err
+	}
+
+	if err := insert(t, []model.Step{{Keyword: model.KeywordGiven, DefinitionID: uuid.NewString()}}, nil); !errors.Is(err, store.ErrInvalidReference) {
+		t.Fatalf("missing definition error = %v", err)
+	}
+	if err := insert(t, []model.Step{{Keyword: model.KeywordGiven, DefinitionID: definitionID}}, nil); err == nil || !strings.Contains(err.Error(), "role") {
+		t.Fatalf("mismatched definition error = %v", err)
+	}
+	err := insert(t, []model.Step{{Keyword: model.KeywordGiven, Text: "new context"}}, func() {
+		fixture.fault.activate("tx_query_row", "INSERT INTO step_definitions", 1)
+	})
+	requireInjectedFailure(t, err)
+	if err := insert(t, []model.Step{{Keyword: model.KeywordGiven, Expression: "there are {int}", Arguments: []string{"two"}}}, nil); err == nil || !strings.Contains(err.Error(), "must be an integer") {
+		t.Fatalf("invalid parameter error = %v", err)
 	}
 }
 
@@ -776,43 +792,64 @@ func TestAuditRejectsUnencodableMetadataAndWriteFailures(t *testing.T) {
 	requireInjectedFailure(t, audit(fixture.ctx, wrapped, fixture.organizationID, fixture.userID, "test", "page", fixture.pageID, nil))
 }
 
-func TestPublishRevisionInternalFailures(t *testing.T) {
+func TestApproveRevisionInternalFailures(t *testing.T) {
 	t.Run("missing and conflicting revisions", func(t *testing.T) {
 		fixture := newFaultFixture(t)
-		if _, err := fixture.repository.PublishRevision(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
+		if _, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("expected missing revision, got %v", err)
 		}
-		if _, err := fixture.repository.PublishRevision(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID); !errors.Is(err, store.ErrConflict) {
+		if _, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID); !errors.Is(err, store.ErrConflict) {
 			t.Fatalf("expected revision conflict, got %v", err)
 		}
 	})
 
 	tests := []struct {
 		name, method, contains string
-		blocking               bool
+		objection              bool
 	}{
 		{name: "page lock", method: "tx_query_row", contains: "FOR UPDATE OF p"},
-		{name: "comment query", method: "tx_query", contains: "FROM comments WHERE page_id"},
-		{name: "comment scan", method: "tx_rows_scan", contains: "FROM comments WHERE page_id", blocking: true},
-		{name: "supersede accepted", method: "tx_exec", contains: "UPDATE revisions SET status = 'superseded'"},
-		{name: "accept draft", method: "tx_exec", contains: "UPDATE revisions SET status = 'accepted'"},
-		{name: "page pointer", method: "tx_exec", contains: "UPDATE pages SET accepted_revision_id"},
+		{name: "objection query", method: "tx_query", contains: "FROM objections WHERE page_id"},
+		{name: "objection scan", method: "tx_rows_scan", contains: "FROM objections WHERE page_id", objection: true},
+		{name: "supersede approved", method: "tx_exec", contains: "UPDATE revisions SET status = 'superseded'"},
+		{name: "approve draft", method: "tx_exec", contains: "UPDATE revisions SET status = 'approved'"},
+		{name: "page pointer", method: "tx_exec", contains: "UPDATE pages SET approved_revision_id"},
 		{name: "audit", method: "tx_exec", contains: "INSERT INTO audit_events"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFaultFixture(t)
 			draft := saveFaultDraft(t, fixture)
-			if test.blocking {
-				if _, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, draft.ID, nil, nil, nil, "Blocker", true); err != nil {
+			if test.objection {
+				if _, err := fixture.repository.AddObjection(fixture.ctx, fixture.organizationID, fixture.userID, draft.ID, "Blocker"); err != nil {
 					t.Fatal(err)
 				}
 			}
 			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := fixture.repository.PublishRevision(fixture.ctx, fixture.organizationID, fixture.userID, draft.ID)
+			_, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, draft.ID)
 			requireInjectedFailure(t, err)
 		})
 	}
+
+	t.Run("publish scenario step definitions", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		feature, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+			Kind: model.PageFeature, Slug: "step-definition-feature-" + uuid.NewString(), Content: conceptContent("Feature"),
+			InitialScenario: &model.InitialScenarioInput{Slug: "step-definition-scenario-" + uuid.NewString(), Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, feature.DraftRevision.ID); err != nil {
+			t.Fatal(err)
+		}
+		var scenarioRevisionID string
+		if err := fixture.pool.QueryRow(fixture.ctx, `SELECT latest_draft_revision_id::text FROM pages WHERE parent_id = $1`, feature.Page.ID).Scan(&scenarioRevisionID); err != nil {
+			t.Fatal(err)
+		}
+		fixture.fault.activate("tx_exec", "UPDATE step_definitions", 1)
+		_, err = fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, scenarioRevisionID)
+		requireInjectedFailure(t, err)
+	})
 }
 
 func TestCommentMutationAndProjectionFailures(t *testing.T) {
@@ -824,7 +861,7 @@ func TestCommentMutationAndProjectionFailures(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFaultFixture(t)
 			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, nil, nil, "Comment", false)
+			_, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, "Comment")
 			requireInjectedFailure(t, err)
 		})
 	}
@@ -832,7 +869,7 @@ func TestCommentMutationAndProjectionFailures(t *testing.T) {
 	t.Run("post-commit projection", func(t *testing.T) {
 		fixture := newFaultFixture(t)
 		fixture.fault.activate("query", "FROM comments c", 1)
-		_, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, nil, nil, "Comment", false)
+		_, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, "Comment")
 		requireInjectedFailure(t, err)
 	})
 
@@ -853,7 +890,7 @@ func TestCommentMutationAndProjectionFailures(t *testing.T) {
 
 	t.Run("comment row scan", func(t *testing.T) {
 		fixture := newFaultFixture(t)
-		comment, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, nil, nil, "Comment", false)
+		comment, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, "Comment")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -863,66 +900,65 @@ func TestCommentMutationAndProjectionFailures(t *testing.T) {
 	})
 }
 
-func TestResolveCommentInternalFailures(t *testing.T) {
+func TestObjectionMutationAndResolutionFailures(t *testing.T) {
+	fixture := newFaultFixture(t)
+	if _, err := fixture.repository.objectionByID(fixture.ctx, fixture.organizationID, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected missing objection projection, got %v", err)
+	}
+	if _, err := fixture.repository.AddObjection(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, " "); !errors.Is(err, governance.ErrObjectionReasonRequired) {
+		t.Fatalf("expected objection reason error, got %v", err)
+	}
+	if _, err := fixture.repository.AddObjection(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString(), "Reason"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected missing revision, got %v", err)
+	}
+	if _, err := fixture.repository.ResolveObjection(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected missing objection, got %v", err)
+	}
+
 	for _, test := range []struct{ name, method, contains string }{
-		{name: "update", method: "tx_exec", contains: "UPDATE comments c"},
+		{name: "revision lookup", method: "tx_query_row", contains: "SELECT p.id::text"},
+		{name: "insert", method: "tx_query_row", contains: "INSERT INTO objections"},
+		{name: "create audit", method: "tx_exec", contains: "INSERT INTO audit_events"},
+	} {
+		t.Run("create "+test.name, func(t *testing.T) {
+			fixture := newFaultFixture(t)
+			fixture.fault.activate(test.method, test.contains, 1)
+			_, err := fixture.repository.AddObjection(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, "Reason")
+			requireInjectedFailure(t, err)
+		})
+	}
+
+	t.Run("create post-commit projection", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		fixture.fault.activate("query_row", "FROM objections o", 1)
+		_, err := fixture.repository.AddObjection(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, "Reason")
+		requireInjectedFailure(t, err)
+	})
+
+	for _, test := range []struct{ name, method, contains string }{
+		{name: "update", method: "tx_exec", contains: "UPDATE objections o"},
 		{name: "audit", method: "tx_exec", contains: "INSERT INTO audit_events"},
 	} {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run("resolve "+test.name, func(t *testing.T) {
 			fixture := newFaultFixture(t)
-			comment, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, nil, nil, "Comment", true)
+			objection, err := fixture.repository.AddObjection(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, "Reason")
 			if err != nil {
 				t.Fatal(err)
 			}
 			fixture.fault.activate(test.method, test.contains, 1)
-			_, err = fixture.repository.ResolveComment(fixture.ctx, fixture.organizationID, fixture.userID, comment.ID)
-			requireInjectedFailure(t, err)
-		})
-	}
-}
-
-func TestVoteInternalFailures(t *testing.T) {
-	fixture := newFaultFixture(t)
-	if _, err := fixture.repository.SetVote(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, governance.VoteValue("invalid"), ""); err == nil {
-		t.Fatal("expected invalid vote")
-	}
-	if _, err := fixture.repository.SetVote(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString(), governance.VoteApprove, ""); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("expected missing revision, got %v", err)
-	}
-
-	tests := []struct {
-		name, method, contains string
-		value                  governance.VoteValue
-		reason                 string
-	}{
-		{name: "revision lookup", method: "tx_query_row", contains: "SELECT p.id::text FROM revisions", value: governance.VoteApprove},
-		{name: "rejection comment", method: "tx_query_row", contains: "INSERT INTO comments", value: governance.VoteReject, reason: "Reason"},
-		{name: "vote write", method: "tx_exec", contains: "INSERT INTO votes", value: governance.VoteApprove},
-		{name: "audit", method: "tx_exec", contains: "INSERT INTO audit_events", value: governance.VoteApprove},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := fixture.repository.SetVote(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, test.value, test.reason)
+			_, err = fixture.repository.ResolveObjection(fixture.ctx, fixture.organizationID, fixture.userID, objection.ID)
 			requireInjectedFailure(t, err)
 		})
 	}
 
-	t.Run("post-commit projection", func(t *testing.T) {
+	t.Run("resolve post-commit projection", func(t *testing.T) {
 		fixture := newFaultFixture(t)
-		fixture.fault.activate("query_row", "FROM votes v", 1)
-		_, err := fixture.repository.SetVote(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, governance.VoteApprove, "")
-		requireInjectedFailure(t, err)
-	})
-
-	t.Run("vote row scan", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		if _, err := fixture.repository.SetVote(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, governance.VoteApprove, ""); err != nil {
+		objection, err := fixture.repository.AddObjection(fixture.ctx, fixture.organizationID, fixture.userID, fixture.revisionID, "Reason")
+		if err != nil {
 			t.Fatal(err)
 		}
-		fixture.fault.activate("rows_scan", "FROM votes v", 1)
-		_, err := fixture.repository.listVotes(fixture.ctx, fixture.organizationID, fixture.pageID)
+		fixture.fault.activate("query_row", "FROM objections o", 1)
+		_, err = fixture.repository.ResolveObjection(fixture.ctx, fixture.organizationID, fixture.userID, objection.ID)
 		requireInjectedFailure(t, err)
 	})
 }
@@ -933,14 +969,147 @@ func createFaultFeature(t *testing.T, fixture *faultFixture) model.PageDetail {
 	feature, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
 		Kind: model.PageFeature, Slug: "feature-" + uuid.NewString(),
 		Content: model.RevisionContent{
-			Title: "Feature", Aliases: []string{}, Steps: []model.Step{},
+			Title: "Feature", Steps: []model.Step{},
 			References: []model.PageReference{{TargetPageID: fixture.pageID, Relation: "uses"}},
 		},
-	}, model.RevisionAccepted)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feature, err = fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, feature.DraftRevision.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return feature
+}
+
+func createFaultScenario(t *testing.T, fixture *faultFixture) string {
+	t.Helper()
+	feature := createFaultFeature(t, fixture)
+	parentID := feature.Page.ID
+	scenario, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+		Kind: model.PageScenario, ParentID: &parentID, Slug: "scenario-" + uuid.NewString(),
+		Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return scenario.Page.ID
+}
+
+func queueFaultScenario(t *testing.T, fixture *faultFixture) model.PageDetail {
+	t.Helper()
+	pageID := createFaultScenario(t, fixture)
+	detail, err := fixture.repository.PageDetail(fixture.ctx, fixture.organizationID, pageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err = fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, detail.DraftRevision.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return detail
+}
+
+func TestScenarioDevelopmentDatabaseFailures(t *testing.T) {
+	t.Run("queue status", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		if _, err := fixture.repository.HasQueuedScenarioDevelopment(fixture.ctx); err != nil {
+			t.Fatal(err)
+		}
+		fixture.fault.activate("query_row", "SELECT EXISTS(SELECT 1 FROM scenario_developments", 1)
+		_, err := fixture.repository.HasQueuedScenarioDevelopment(fixture.ctx)
+		requireInjectedFailure(t, err)
+	})
+
+	for _, test := range []struct{ name, method, contains string }{
+		{name: "begin", method: "begin"},
+		{name: "select", method: "tx_query_row", contains: "FROM scenario_developments sd"},
+		{name: "mark running", method: "tx_query_row", contains: "UPDATE scenario_developments"},
+		{name: "commit", method: "commit"},
+		{name: "load scenario", method: "query_row", contains: "FROM revisions r"},
+	} {
+		t.Run("claim "+test.name, func(t *testing.T) {
+			fixture := newFaultFixture(t)
+			if test.name != "begin" {
+				queueFaultScenario(t, fixture)
+			}
+			fixture.fault.activate(test.method, test.contains, 1)
+			_, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx)
+			requireInjectedFailure(t, err)
+		})
+	}
+
+	t.Run("block and missing running task", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		queueFaultScenario(t, fixture)
+		if _, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx); err != nil {
+			t.Fatal(err)
+		}
+		development, err := fixture.repository.BlockScenarioDevelopment(fixture.ctx, "Target API missing")
+		if err != nil || development.Status != model.DevelopmentBlocked || development.Detail != "Target API missing" {
+			t.Fatalf("development=%+v err=%v", development, err)
+		}
+		if _, err := fixture.pool.Exec(fixture.ctx, `UPDATE scenario_developments SET status = 'blocked' WHERE status = 'running'`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.repository.BlockScenarioDevelopment(fixture.ctx, "again"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("missing running task error=%v, want not found", err)
+		}
+	})
+
+	t.Run("finish query", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		queueFaultScenario(t, fixture)
+		if _, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx); err != nil {
+			t.Fatal(err)
+		}
+		fixture.fault.activate("query_row", "UPDATE scenario_developments", 1)
+		_, err := fixture.repository.CompleteScenarioDevelopment(fixture.ctx, "receipt")
+		requireInjectedFailure(t, err)
+	})
+
+	t.Run("projection missing and query failure", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		if _, err := fixture.repository.scenarioDevelopment(fixture.ctx, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("missing projection error=%v, want not found", err)
+		}
+		fixture.fault.activate("query_row", "FROM scenario_developments", 1)
+		_, err := fixture.repository.scenarioDevelopment(fixture.ctx, uuid.NewString())
+		requireInjectedFailure(t, err)
+	})
+
+	t.Run("page projection query failure", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		detail := queueFaultScenario(t, fixture)
+		fixture.fault.activate("query_row", "FROM scenario_developments", 1)
+		_, err := fixture.repository.PageDetail(fixture.ctx, fixture.organizationID, detail.Page.ID)
+		requireInjectedFailure(t, err)
+	})
+
+	t.Run("page projection tolerates no development row", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		detail := queueFaultScenario(t, fixture)
+		if _, err := fixture.pool.Exec(fixture.ctx, `DELETE FROM scenario_developments WHERE revision_id = $1`, detail.ApprovedRevision.ID); err != nil {
+			t.Fatal(err)
+		}
+		detail, err := fixture.repository.PageDetail(fixture.ctx, fixture.organizationID, detail.Page.ID)
+		if err != nil || detail.Development != nil {
+			t.Fatalf("development=%+v err=%v, want nil and nil", detail.Development, err)
+		}
+	})
+}
+
+func TestApprovingScenarioPropagatesQueueInsertFailure(t *testing.T) {
+	fixture := newFaultFixture(t)
+	pageID := createFaultScenario(t, fixture)
+	detail, err := fixture.repository.PageDetail(fixture.ctx, fixture.organizationID, pageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.fault.activate("tx_exec", "INSERT INTO scenario_developments", 1)
+	_, err = fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, detail.DraftRevision.ID)
+	requireInjectedFailure(t, err)
 }
 
 func TestPageDetailPropagatesNestedReadFailures(t *testing.T) {
@@ -950,11 +1119,20 @@ func TestPageDetailPropagatesNestedReadFailures(t *testing.T) {
 		setup                  func(*testing.T, *faultFixture) string
 	}{
 		{name: "page", method: "query_row", contains: "WHERE p.organization_id = $1 AND p.id = $2", occurrence: 1, setup: func(_ *testing.T, f *faultFixture) string { return f.pageID }},
-		{name: "accepted revision", method: "query_row", contains: "FROM revisions r", occurrence: 1, setup: func(_ *testing.T, f *faultFixture) string { return f.pageID }},
+		{name: "approved revision", method: "query_row", contains: "FROM revisions r", occurrence: 1, setup: func(_ *testing.T, f *faultFixture) string { return f.pageID }},
 		{name: "draft revision", method: "query_row", contains: "FROM revisions r", occurrence: 2, setup: func(t *testing.T, f *faultFixture) string { _ = saveFaultDraft(t, f); return f.pageID }},
 		{name: "revision summaries", method: "query", contains: "FROM revisions r JOIN users", occurrence: 1, setup: func(_ *testing.T, f *faultFixture) string { return f.pageID }},
 		{name: "comments", method: "query", contains: "FROM comments c", occurrence: 1, setup: func(_ *testing.T, f *faultFixture) string { return f.pageID }},
-		{name: "votes", method: "query", contains: "FROM votes v", occurrence: 1, setup: func(_ *testing.T, f *faultFixture) string { return f.pageID }},
+		{name: "scenario parent review", method: "query_row", contains: "SELECT COALESCE(dr.title, ar.title, p.slug), p.approved_revision_id IS NOT NULL", occurrence: 1, setup: createFaultScenario},
+		{name: "review objections", method: "query", contains: "FROM objections o", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string { _ = saveFaultDraft(t, f); return f.pageID }},
+		{name: "review objection scan", method: "rows_scan", contains: "FROM objections o", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string {
+			draft := saveFaultDraft(t, f)
+			if _, err := f.repository.AddObjection(f.ctx, f.organizationID, f.userID, draft.ID, "Reason"); err != nil {
+				t.Fatal(err)
+			}
+			return f.pageID
+		}},
+		{name: "review objection iteration", method: "rows_error", contains: "FROM objections o", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string { _ = saveFaultDraft(t, f); return f.pageID }},
 		{name: "feature children query", method: "query", contains: "p.parent_id = $2", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string { return createFaultFeature(t, f).Page.ID }},
 	}
 	for _, test := range tests {
@@ -973,8 +1151,8 @@ func TestPageDetailPropagatesNestedReadFailures(t *testing.T) {
 		parentID := feature.Page.ID
 		if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
 			Kind: model.PageScenario, ParentID: &parentID, Slug: "scenario-" + uuid.NewString(),
-			Content: model.RevisionContent{Title: "Scenario", Aliases: []string{}, Steps: scenarioSteps(), References: []model.PageReference{}},
-		}, model.RevisionAccepted); err != nil {
+			Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}},
+		}); err != nil {
 			t.Fatal(err)
 		}
 		fixture.fault.activate("rows_scan", "p.parent_id = $2", 1)
@@ -1014,19 +1192,26 @@ func TestRevisionProjectionInternalFailures(t *testing.T) {
 		})
 	}
 
+	t.Run("revision batch load", func(t *testing.T) {
+		fixture := newFaultFixture(t)
+		fixture.fault.activate("query_row", "FROM revisions r", 1)
+		_, err := fixture.repository.revisionsByID(fixture.ctx, []string{fixture.revisionID})
+		requireInjectedFailure(t, err)
+	})
+
 	t.Run("step scan", func(t *testing.T) {
 		fixture := newFaultFixture(t)
 		feature := createFaultFeature(t, fixture)
 		parentID := feature.Page.ID
 		scenario, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
 			Kind: model.PageScenario, ParentID: &parentID, Slug: "scenario-" + uuid.NewString(),
-			Content: model.RevisionContent{Title: "Scenario", Aliases: []string{}, Steps: scenarioSteps(), References: []model.PageReference{}},
-		}, model.RevisionAccepted)
+			Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}},
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		fixture.fault.activate("rows_scan", "FROM bdd_steps", 1)
-		_, err = fixture.repository.loadRevision(fixture.ctx, scenario.AcceptedRevision.ID)
+		_, err = fixture.repository.loadRevision(fixture.ctx, scenario.DraftRevision.ID)
 		requireInjectedFailure(t, err)
 	})
 
@@ -1034,299 +1219,19 @@ func TestRevisionProjectionInternalFailures(t *testing.T) {
 		fixture := newFaultFixture(t)
 		feature := createFaultFeature(t, fixture)
 		fixture.fault.activate("rows_scan", "FROM page_references", 1)
-		_, err := fixture.repository.loadRevision(fixture.ctx, feature.AcceptedRevision.ID)
+		_, err := fixture.repository.loadRevision(fixture.ctx, feature.ApprovedRevision.ID)
 		requireInjectedFailure(t, err)
 	})
 }
 
-func TestStageAssistantProposalValidationAndInternalFailures(t *testing.T) {
-	fixture := newFaultFixture(t)
-	mutation := model.AssistantMutationContext{ConversationID: fixture.conversationID, TurnID: uuid.NewString()}
-	if _, err := fixture.repository.StageAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, mutation, model.AIChangeSet{}); err == nil {
-		t.Fatal("expected empty proposal validation error")
-	}
-	if _, err := fixture.repository.StageAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, mutation, model.AIChangeSet{Clarification: "Question", Operations: simpleConceptChangeSet("unused").Operations}); err == nil {
-		t.Fatal("expected clarification validation error")
-	}
-	invalid := simpleConceptChangeSet("invalid-shape")
-	invalid.Operations[0].Operation = "unsupported"
-	if _, err := fixture.repository.StageAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, mutation, invalid); err == nil {
-		t.Fatal("expected change-set validation error")
-	}
-
-	originalMarshal := marshalAssistantJSON
-	marshalAssistantJSON = func(any) ([]byte, error) { return nil, errInjectedDatabase }
-	t.Cleanup(func() { marshalAssistantJSON = originalMarshal })
-	if _, err := fixture.repository.StageAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, mutation, simpleConceptChangeSet("marshal-failure")); !errors.Is(err, errInjectedDatabase) {
-		t.Fatalf("expected marshal failure, got %v", err)
-	}
-	marshalAssistantJSON = originalMarshal
-
-	for _, test := range []struct{ name, method, contains string }{
-		{name: "proposal insert", method: "tx_exec", contains: "INSERT INTO assistant_draft_proposals"},
-		{name: "audit", method: "tx_exec", contains: "INSERT INTO audit_events"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := fixture.repository.StageAssistantDraftProposal(
-				fixture.ctx, fixture.organizationID, fixture.userID,
-				model.AssistantMutationContext{ConversationID: fixture.conversationID, TurnID: uuid.NewString()},
-				simpleConceptChangeSet("stage-"+uuid.NewString()),
-			)
-			requireInjectedFailure(t, err)
-		})
-	}
-}
-
-func TestAssistantProposalReadFailures(t *testing.T) {
-	t.Run("row scan", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		_ = stageFaultProposal(t, fixture, 1)
-		fixture.fault.activate("rows_scan", "FROM assistant_draft_proposals", 1)
-		_, err := fixture.repository.ListAssistantDraftProposals(fixture.ctx, fixture.organizationID, fixture.userID)
-		requireInjectedFailure(t, err)
-	})
-
-	for _, test := range []struct {
-		name, column, value string
-		list                bool
-	}{
-		{name: "list invalid changeset", column: "changeset", value: `'"invalid"'::jsonb`, list: true},
-		{name: "list invalid reviews", column: "operation_reviews", value: `'"invalid"'::jsonb`, list: true},
-		{name: "detail invalid changeset", column: "changeset", value: `'"invalid"'::jsonb`},
-		{name: "detail invalid reviews", column: "operation_reviews", value: `'"invalid"'::jsonb`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			proposal := stageFaultProposal(t, fixture, 1)
-			if _, err := fixture.pool.Exec(fixture.ctx, `UPDATE assistant_draft_proposals SET `+test.column+` = `+test.value+` WHERE id = $1`, proposal.ID); err != nil {
-				t.Fatal(err)
-			}
-			var err error
-			if test.list {
-				_, err = fixture.repository.ListAssistantDraftProposals(fixture.ctx, fixture.organizationID, fixture.userID)
-			} else {
-				_, err = fixture.repository.AssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID)
-			}
-			if err == nil {
-				t.Fatal("expected proposal decoding failure")
-			}
-		})
-	}
-
-	for _, list := range []bool{true, false} {
-		name := "detail"
-		if list {
-			name = "list"
-		}
-		t.Run(name+" missing published revision", func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			proposal := stageFaultProposal(t, fixture, 1)
-			missing := uuid.NewString()
-			if _, err := fixture.pool.Exec(fixture.ctx, `UPDATE assistant_draft_proposals SET published_revision_ids = ARRAY[$2::uuid] WHERE id = $1`, proposal.ID, missing); err != nil {
-				t.Fatal(err)
-			}
-			var err error
-			if list {
-				_, err = fixture.repository.ListAssistantDraftProposals(fixture.ctx, fixture.organizationID, fixture.userID)
-			} else {
-				_, err = fixture.repository.AssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID)
-			}
-			if !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("expected missing revision, got %v", err)
-			}
-		})
-	}
-}
-
-func TestReviewAssistantProposalValidationAndInternalFailures(t *testing.T) {
-	fixture := newFaultFixture(t)
-	if _, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString(), "operation", model.AssistantOperationReviewValue("invalid"), "", false); err == nil {
-		t.Fatal("expected invalid review")
-	}
-	if _, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString(), "operation", model.AssistantReviewReject, "", false); !errors.Is(err, governance.ErrRejectionReasonRequired) {
-		t.Fatalf("expected rejection reason error, got %v", err)
-	}
-	if _, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString(), "operation", model.AssistantReviewApprove, "", false); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("expected missing proposal, got %v", err)
-	}
-
-	t.Run("proposal lock", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		proposal := stageFaultProposal(t, fixture, 1)
-		fixture.fault.activate("tx_query_row", "FROM assistant_draft_proposals", 1)
-		_, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID, "concept", model.AssistantReviewApprove, "", false)
-		requireInjectedFailure(t, err)
-	})
-
-	for _, column := range []string{"changeset", "operation_reviews"} {
-		t.Run("invalid "+column, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			proposal := stageFaultProposal(t, fixture, 1)
-			if _, err := fixture.pool.Exec(fixture.ctx, `UPDATE assistant_draft_proposals SET `+column+` = '"invalid"'::jsonb WHERE id = $1`, proposal.ID); err != nil {
-				t.Fatal(err)
-			}
-			_, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID, "concept", model.AssistantReviewApprove, "", false)
-			if err == nil {
-				t.Fatal("expected decode failure")
-			}
-		})
-	}
-
-	t.Run("conflicting status and missing operation", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		proposal := stageFaultProposal(t, fixture, 1)
-		if _, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID, "missing", model.AssistantReviewApprove, "", false); !errors.Is(err, store.ErrNotFound) {
-			t.Fatalf("expected missing operation, got %v", err)
-		}
-		if _, err := fixture.pool.Exec(fixture.ctx, `UPDATE assistant_draft_proposals SET status = 'discarded', rejection_reason = 'Reason' WHERE id = $1`, proposal.ID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID, "concept", model.AssistantReviewApprove, "", false); !errors.Is(err, store.ErrConflict) {
-			t.Fatalf("expected proposal conflict, got %v", err)
-		}
-	})
-
-	t.Run("review marshal", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		proposal := stageFaultProposal(t, fixture, 1)
-		original := marshalAssistantJSON
-		marshalAssistantJSON = func(any) ([]byte, error) { return nil, errInjectedDatabase }
-		t.Cleanup(func() { marshalAssistantJSON = original })
-		_, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID, "concept", model.AssistantReviewApprove, "", false)
-		requireInjectedFailure(t, err)
-	})
-
-	tests := []struct {
-		name, method, contains string
-		occurrence             int
-		operations             int
-		operationKey           string
-	}{
-		{name: "review audit", method: "tx_exec", contains: "INSERT INTO audit_events", operations: 2, operationKey: "concept"},
-		{name: "partial update", method: "tx_exec", contains: "SET operation_reviews = $2, updated_at", operations: 2, operationKey: "concept"},
-		{name: "partial commit", method: "commit", operations: 2, operationKey: "concept"},
-		{name: "accepted change", method: "tx_query_row", contains: "INSERT INTO pages", operations: 1, operationKey: "concept"},
-		{name: "final update", method: "tx_exec", contains: "status = $3", operations: 1, operationKey: "concept"},
-		{name: "final audit", method: "tx_exec", contains: "assistant_draft_proposal", occurrence: 2, operations: 1, operationKey: "concept"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			proposal := stageFaultProposal(t, fixture, test.operations)
-			occurrence := test.occurrence
-			if occurrence == 0 {
-				occurrence = 1
-			}
-			contains := test.contains
-			if test.name == "final audit" {
-				contains = "INSERT INTO audit_events"
-			}
-			fixture.fault.activate(test.method, contains, occurrence)
-			_, err := fixture.repository.ReviewAssistantDraftProposalOperation(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID, test.operationKey, model.AssistantReviewApprove, "", false)
-			requireInjectedFailure(t, err)
-		})
-	}
-}
-
-func TestAssistantProposalReviewHelpersCoverMissingAndInvalidShapes(t *testing.T) {
-	if err := auditAssistantOperationReview(context.Background(), nil, "", "", "", "", "", nil, "missing"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("expected missing review, got %v", err)
-	}
-	invalid := model.AIChangeSet{Operations: []model.AIChangeOperation{{
-		Operation: "create", ClientKey: "feature", Kind: model.PageFeature, Slug: "feature", Content: conceptContent("Feature"),
-	}}}
-	_, _, _, err := approvedAssistantChangeSet(invalid, []model.AssistantOperationReview{{OperationKey: "feature", Value: model.AssistantReviewApprove}})
-	if err == nil {
-		t.Fatal("expected approved change-set validation failure")
-	}
-}
-
-func TestPublishAssistantProposalInternalFailures(t *testing.T) {
-	t.Run("missing, published, and discarded states", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		if _, err := fixture.repository.PublishAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
-			t.Fatalf("expected missing proposal, got %v", err)
-		}
-		published := stageFaultProposal(t, fixture, 1)
-		if _, err := fixture.repository.PublishAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, published.ID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := fixture.repository.PublishAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, published.ID); err != nil {
-			t.Fatalf("published proposal should be idempotent: %v", err)
-		}
-		discarded := stageFaultProposal(t, fixture, 1)
-		if _, err := fixture.repository.DiscardAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, discarded.ID, "Reason"); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := fixture.repository.PublishAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, discarded.ID); !errors.Is(err, store.ErrConflict) {
-			t.Fatalf("expected discarded proposal conflict, got %v", err)
-		}
-	})
-
-	t.Run("proposal lock", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		proposal := stageFaultProposal(t, fixture, 1)
-		fixture.fault.activate("tx_query_row", "FROM assistant_draft_proposals", 1)
-		_, err := fixture.repository.PublishAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID)
-		requireInjectedFailure(t, err)
-	})
-
-	t.Run("invalid changeset", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		proposal := stageFaultProposal(t, fixture, 1)
-		if _, err := fixture.pool.Exec(fixture.ctx, `UPDATE assistant_draft_proposals SET changeset = '"invalid"'::jsonb WHERE id = $1`, proposal.ID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := fixture.repository.PublishAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID); err == nil {
-			t.Fatal("expected proposal decode failure")
-		}
-	})
-
-	for _, test := range []struct{ name, method, contains string }{
-		{name: "accepted changes", method: "tx_query_row", contains: "INSERT INTO pages"},
-		{name: "proposal update", method: "tx_exec", contains: "SET status = 'published'"},
-		{name: "audit", method: "tx_exec", contains: "INSERT INTO audit_events"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			proposal := stageFaultProposal(t, fixture, 1)
-			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := fixture.repository.PublishAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID)
-			requireInjectedFailure(t, err)
-		})
-	}
-}
-
-func TestDiscardAssistantProposalInternalFailures(t *testing.T) {
-	fixture := newFaultFixture(t)
-	if _, err := fixture.repository.DiscardAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString(), "Reason"); !errors.Is(err, store.ErrConflict) {
-		t.Fatalf("expected discard conflict, got %v", err)
-	}
-
-	for _, test := range []struct{ name, method, contains string }{
-		{name: "proposal update", method: "tx_exec", contains: "SET status = 'discarded'"},
-		{name: "audit", method: "tx_exec", contains: "INSERT INTO audit_events"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			proposal := stageFaultProposal(t, fixture, 1)
-			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := fixture.repository.DiscardAssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID, "Reason")
-			requireInjectedFailure(t, err)
-		})
-	}
-}
-
-func runAIChangeSetTx(t *testing.T, fixture *faultFixture, changeSet model.AIChangeSet, status model.RevisionStatus) ([]string, error) {
+func runAIChangeSetTx(t *testing.T, fixture *faultFixture, changeSet model.AIChangeSet) ([]string, error) {
 	t.Helper()
 	tx, err := fixture.repository.pool.BeginTx(fixture.ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(fixture.ctx) }()
-	return fixture.repository.applyAIChangeSetTx(fixture.ctx, tx, fixture.organizationID, fixture.userID, changeSet, status)
+	return fixture.repository.applyAIChangeSetTx(fixture.ctx, tx, fixture.organizationID, fixture.userID, changeSet)
 }
 
 func reviseFaultChangeSet(t *testing.T, fixture *faultFixture, baseRevisionID string) model.AIChangeSet {
@@ -1348,49 +1253,48 @@ func TestApplyAIChangeSetValidationAndAuditFailure(t *testing.T) {
 	if _, err := fixture.repository.ApplyAIChangeSet(fixture.ctx, fixture.organizationID, fixture.userID, model.AssistantMutationContext{}, model.AIChangeSet{}); err == nil {
 		t.Fatal("expected empty change-set error")
 	}
+	fixture.fault.activate("tx_query_row", "INSERT INTO pages", 1)
+	_, err := fixture.repository.ApplyAIChangeSet(fixture.ctx, fixture.organizationID, fixture.userID, model.AssistantMutationContext{}, simpleConceptChangeSet("apply-"+uuid.NewString()))
+	requireInjectedFailure(t, err)
 	fixture.fault.activate("tx_exec", "INSERT INTO audit_events", 1)
-	_, err := fixture.repository.ApplyAIChangeSet(fixture.ctx, fixture.organizationID, fixture.userID, model.AssistantMutationContext{}, simpleConceptChangeSet("audit-"+uuid.NewString()))
+	_, err = fixture.repository.ApplyAIChangeSet(fixture.ctx, fixture.organizationID, fixture.userID, model.AssistantMutationContext{}, simpleConceptChangeSet("audit-"+uuid.NewString()))
 	requireInjectedFailure(t, err)
 }
 
 func TestApplyAIChangeSetCreateOperationFailures(t *testing.T) {
 	fixture := newFaultFixture(t)
-	if _, err := runAIChangeSetTx(t, fixture, simpleConceptChangeSet("valid"), model.RevisionStatus("invalid")); err == nil {
-		t.Fatal("expected invalid status")
-	}
-
 	unknownParent := simpleConceptChangeSet("unknown-parent")
 	unknownParent.Operations[0].ParentClientKey = "missing"
-	if _, err := runAIChangeSetTx(t, fixture, unknownParent, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, unknownParent); err == nil {
 		t.Fatal("expected unknown parent key")
 	}
 	unknownReference := simpleConceptChangeSet("unknown-reference")
 	unknownReference.Operations[0].Content.References = []model.PageReference{{TargetClientKey: "missing", Relation: "uses"}}
-	if _, err := runAIChangeSetTx(t, fixture, unknownReference, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, unknownReference); err == nil {
 		t.Fatal("expected unknown reference key")
 	}
 	invalidSlug := simpleConceptChangeSet("Invalid slug")
-	if _, err := runAIChangeSetTx(t, fixture, invalidSlug, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, invalidSlug); err == nil {
 		t.Fatal("expected invalid slug")
 	}
 	invalidContent := simpleConceptChangeSet("invalid-content")
 	invalidContent.Operations[0].Content.Title = ""
-	if _, err := runAIChangeSetTx(t, fixture, invalidContent, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, invalidContent); err == nil {
 		t.Fatal("expected invalid content")
 	}
 
 	feature := createFaultFeature(t, fixture)
 	parentID := fixture.pageID
 	invalidParent := model.AIChangeSet{Operations: []model.AIChangeOperation{{
-		Operation: "create", Kind: model.PageScenario, ParentID: &parentID, Slug: "invalid-parent", Content: model.RevisionContent{Title: "Scenario", Aliases: []string{}, Steps: scenarioSteps(), References: []model.PageReference{}},
+		Operation: "create", Kind: model.PageScenario, ParentID: &parentID, Slug: "invalid-parent", Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}},
 	}}}
-	if _, err := runAIChangeSetTx(t, fixture, invalidParent, model.RevisionDraft); !errors.Is(err, store.ErrInvalidHierarchy) {
+	if _, err := runAIChangeSetTx(t, fixture, invalidParent); !errors.Is(err, store.ErrInvalidHierarchy) {
 		t.Fatalf("expected invalid hierarchy, got %v", err)
 	}
 	_ = feature
 
 	duplicate := simpleConceptChangeSet(fixture.repository.repositorySlug(t, fixture.pageID))
-	if _, err := runAIChangeSetTx(t, fixture, duplicate, model.RevisionDraft); !errors.Is(err, store.ErrDuplicateSlug) {
+	if _, err := runAIChangeSetTx(t, fixture, duplicate); !errors.Is(err, store.ErrDuplicateSlug) {
 		t.Fatalf("expected duplicate slug, got %v", err)
 	}
 
@@ -1402,14 +1306,14 @@ func TestApplyAIChangeSetCreateOperationFailures(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFaultFixture(t)
 			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := runAIChangeSetTx(t, fixture, simpleConceptChangeSet("create-"+uuid.NewString()), model.RevisionDraft)
+			_, err := runAIChangeSetTx(t, fixture, simpleConceptChangeSet("create-"+uuid.NewString()))
 			requireInjectedFailure(t, err)
 		})
 	}
 
 	unsupported := simpleConceptChangeSet("unsupported")
 	unsupported.Operations[0].Operation = "delete"
-	if _, err := runAIChangeSetTx(t, fixture, unsupported, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, unsupported); err == nil {
 		t.Fatal("expected unsupported operation")
 	}
 }
@@ -1423,14 +1327,14 @@ func TestApplyAIChangeSetResolvesCreatedParentsAndReferences(t *testing.T) {
 		},
 		{
 			Operation: "create", ClientKey: "feature", Kind: model.PageFeature, Slug: "feature-" + uuid.NewString(),
-			Content: model.RevisionContent{Title: "Feature", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{{TargetClientKey: "concept", Relation: "uses"}}},
+			Content: model.RevisionContent{Title: "Feature", Steps: []model.Step{}, References: []model.PageReference{{TargetClientKey: "concept", Relation: "uses"}}},
 		},
 		{
 			Operation: "create", Kind: model.PageScenario, ParentClientKey: "feature", Slug: "scenario-" + uuid.NewString(),
-			Content: model.RevisionContent{Title: "Scenario", Aliases: []string{}, Steps: scenarioSteps(), References: []model.PageReference{{TargetClientKey: "concept", Relation: "uses"}}},
+			Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{{TargetClientKey: "concept", Relation: "uses"}}},
 		},
 	}}
-	ids, err := runAIChangeSetTx(t, fixture, changeSet, model.RevisionDraft)
+	ids, err := runAIChangeSetTx(t, fixture, changeSet)
 	if err != nil || len(ids) != 3 {
 		t.Fatalf("ids=%v err=%v", ids, err)
 	}
@@ -1438,38 +1342,38 @@ func TestApplyAIChangeSetResolvesCreatedParentsAndReferences(t *testing.T) {
 
 func TestApplyAIChangeSetReviseOperationFailures(t *testing.T) {
 	fixture := newFaultFixture(t)
-	if ids, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID), model.RevisionDraft); err != nil || len(ids) != 1 {
+	if ids, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID)); err != nil || len(ids) != 1 {
 		t.Fatalf("successful revise ids=%v err=%v", ids, err)
 	}
 	missingIDs := model.AIChangeSet{Operations: []model.AIChangeOperation{{Operation: "revise"}}}
-	if _, err := runAIChangeSetTx(t, fixture, missingIDs, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, missingIDs); err == nil {
 		t.Fatal("expected revise identifiers")
 	}
 	missing := reviseFaultChangeSet(t, fixture, fixture.revisionID)
 	missingPageID := uuid.NewString()
 	missing.Operations[0].PageID = &missingPageID
-	if _, err := runAIChangeSetTx(t, fixture, missing, model.RevisionDraft); !errors.Is(err, store.ErrNotFound) {
+	if _, err := runAIChangeSetTx(t, fixture, missing); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected missing page, got %v", err)
 	}
 
 	fixture.fault.activate("tx_query_row", "FROM pages WHERE id = $1", 1)
-	if _, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID), model.RevisionDraft); !errors.Is(err, errInjectedDatabase) {
+	if _, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID)); !errors.Is(err, errInjectedDatabase) {
 		t.Fatalf("expected page lookup failure, got %v", err)
 	}
 	fixture.fault.activate("", "", 0)
 
 	mismatch := reviseFaultChangeSet(t, fixture, fixture.revisionID)
 	mismatch.Operations[0].Slug = "wrong-slug"
-	if _, err := runAIChangeSetTx(t, fixture, mismatch, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, mismatch); err == nil {
 		t.Fatal("expected immutable metadata mismatch")
 	}
 	conflict := reviseFaultChangeSet(t, fixture, uuid.NewString())
-	if _, err := runAIChangeSetTx(t, fixture, conflict, model.RevisionDraft); !errors.Is(err, store.ErrConflict) {
+	if _, err := runAIChangeSetTx(t, fixture, conflict); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("expected revision conflict, got %v", err)
 	}
 	invalid := reviseFaultChangeSet(t, fixture, fixture.revisionID)
 	invalid.Operations[0].Content.Title = ""
-	if _, err := runAIChangeSetTx(t, fixture, invalid, model.RevisionDraft); err == nil {
+	if _, err := runAIChangeSetTx(t, fixture, invalid); err == nil {
 		t.Fatal("expected revised content validation error")
 	}
 
@@ -1481,7 +1385,7 @@ func TestApplyAIChangeSetReviseOperationFailures(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFaultFixture(t)
 			fixture.fault.activate(test.method, test.contains, 1)
-			_, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID), model.RevisionDraft)
+			_, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID))
 			requireInjectedFailure(t, err)
 		})
 	}
@@ -1490,39 +1394,9 @@ func TestApplyAIChangeSetReviseOperationFailures(t *testing.T) {
 		fixture := newFaultFixture(t)
 		draft := saveFaultDraft(t, fixture)
 		fixture.fault.activate("tx_exec", "AND status = 'draft'", 1)
-		_, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, draft.ID), model.RevisionDraft)
+		_, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, draft.ID))
 		requireInjectedFailure(t, err)
 	})
-
-	t.Run("supersede accepted", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		fixture.fault.activate("tx_exec", "AND status = 'accepted'", 1)
-		_, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID), model.RevisionAccepted)
-		requireInjectedFailure(t, err)
-	})
-
-	t.Run("accepted page pointer", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		fixture.fault.activate("tx_exec", "UPDATE pages SET accepted_revision_id", 1)
-		_, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID), model.RevisionAccepted)
-		requireInjectedFailure(t, err)
-	})
-}
-
-func TestAssistantDraftProposalPropagatesDatabaseErrors(t *testing.T) {
-	fixture := newFaultFixture(t)
-	proposal := stageFaultProposal(t, fixture, 1)
-	fixture.fault.activate("query_row", "FROM assistant_draft_proposals", 1)
-	_, err := fixture.repository.AssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, proposal.ID)
-	requireInjectedFailure(t, err)
-}
-
-func TestAssistantDraftProposalMapsMissingRows(t *testing.T) {
-	fixture := newFaultFixture(t)
-	_, err := fixture.repository.AssistantDraftProposal(fixture.ctx, fixture.organizationID, fixture.userID, uuid.NewString())
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("expected not found, got %v", err)
-	}
 }
 
 func TestScenarioParentLookupFailureIsRejected(t *testing.T) {
@@ -1532,43 +1406,11 @@ func TestScenarioParentLookupFailureIsRejected(t *testing.T) {
 	fixture.fault.activate("tx_query_row", "SELECT kind FROM pages", 1)
 	_, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
 		Kind: model.PageScenario, ParentID: &parentID, Slug: "scenario-" + uuid.NewString(),
-		Content: model.RevisionContent{Title: "Scenario", Aliases: []string{}, Steps: scenarioSteps(), References: []model.PageReference{}},
-	}, model.RevisionDraft)
+		Content: model.RevisionContent{Title: "Scenario", Steps: scenarioSteps(), References: []model.PageReference{}},
+	})
 	if !errors.Is(err, store.ErrInvalidHierarchy) {
 		t.Fatalf("expected invalid hierarchy, got %v", err)
 	}
-}
-
-func TestEnsurePagePublishableFailures(t *testing.T) {
-	for _, test := range []struct{ name, method string }{
-		{name: "query", method: "tx_query"},
-		{name: "scan", method: "tx_rows_scan"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFaultFixture(t)
-			if _, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, nil, nil, "Blocker", true); err != nil {
-				t.Fatal(err)
-			}
-			fixture.fault.activate(test.method, "FROM comments WHERE page_id", 1)
-			tx, err := fixture.repository.pool.Begin(fixture.ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = tx.Rollback(fixture.ctx) }()
-			requireInjectedFailure(t, ensurePagePublishable(fixture.ctx, tx, fixture.pageID))
-		})
-	}
-
-	t.Run("blocker", func(t *testing.T) {
-		fixture := newFaultFixture(t)
-		if _, err := fixture.repository.AddComment(fixture.ctx, fixture.organizationID, fixture.userID, fixture.pageID, fixture.revisionID, nil, nil, nil, "Blocker", true); err != nil {
-			t.Fatal(err)
-		}
-		_, err := runAIChangeSetTx(t, fixture, reviseFaultChangeSet(t, fixture, fixture.revisionID), model.RevisionAccepted)
-		if !errors.Is(err, governance.ErrUnresolvedRejection) {
-			t.Fatalf("expected publication blocker, got %v", err)
-		}
-	})
 }
 
 type migrationEntry struct {

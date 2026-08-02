@@ -2,7 +2,7 @@ import { Children, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Page, RevisionStatus } from '../api/types'
-import { translate, useI18n, type Locale } from '../i18n'
+import { translate, useI18n, type Locale, type Translate } from '../i18n'
 
 export function Spinner({ label }: { label?: string }) {
   const { t } = useI18n()
@@ -15,9 +15,12 @@ export function EmptyState({ icon, title, body, action }: { icon?: ReactNode; ti
 
 export function StatusBadge({ status, page }: { status?: RevisionStatus; page?: Page }) {
   const { t } = useI18n()
-  const resolved: RevisionStatus | 'rejected' = status ?? ((page?.unresolvedRejections ?? 0) > 0 ? 'rejected' : page?.hasDraft ? 'draft' : page?.accepted ? 'accepted' : 'draft')
-  const label = resolved === 'accepted' ? t('status.accepted') : resolved === 'rejected' ? t('status.rejected') : resolved === 'superseded' ? t('status.superseded') : t('status.draft')
-  return <span className={`status-badge ${resolved}`}>{label}</span>
+  const resolved: RevisionStatus = status ?? (page?.hasDraft ? 'draft' : page?.approved ? 'approved' : 'draft')
+  return <span className={`status-badge ${resolved}`}>{statusLabel(resolved, t)}</span>
+}
+
+export function statusLabel(status: RevisionStatus, t: Translate): string {
+  return status === 'approved' ? t('status.approved') : status === 'superseded' ? t('status.superseded') : t('status.draft')
 }
 
 interface InlineMarkdownLink {

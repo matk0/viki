@@ -1,0 +1,21 @@
+#!/command/with-contenv sh
+set -eu
+
+export HOME=/opt/data
+export HERMES_HOME=/opt/data/profiles/viki-developer
+export HERMES_TUI_TOOLSETS=viki_develop
+export HERMES_TUI_PASS_SESSION_ID=0
+export VIKI_HERMES_TOOL_TOKEN="${VIKI_HERMES_TOOL_TOKEN:-viki-local-tool-service}"
+export VIKI_INTERNAL_URL="${VIKI_INTERNAL_URL:-http://viki:8090}"
+
+cd /opt/data
+/command/s6-setuidgid hermes python3 /opt/viki-hermes/verify_runtime.py developer
+if ! /command/s6-setuidgid hermes hermes -p viki-developer cron list | grep -Fq "viki-scenario-developer"; then
+    /command/s6-setuidgid hermes hermes -p viki-developer cron create \
+        "every 1m" \
+        "Spracuj najviac jeden schválený scenár podľa SOUL.md." \
+        --name viki-scenario-developer \
+        --deliver local \
+        --script check_queue.py
+fi
+exec s6-setuidgid hermes hermes -p viki-developer serve --isolated --host 127.0.0.1 --port 9121 --no-open

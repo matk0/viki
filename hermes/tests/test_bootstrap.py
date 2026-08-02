@@ -73,6 +73,10 @@ for entry in source.iterdir():
             self.assertEqual(session.read_text(), "session-state")
             self.assertEqual(memory.read_text(), "durable-memory")
             self.assertTrue((data / "profiles" / "viki-edit" / "sessions").is_dir())
+            self.assertTrue((data / "profiles" / "viki-developer" / "sessions").is_dir())
+            self.assertTrue(
+                (data / "profiles" / "viki-developer" / "scripts" / "check_queue.py").is_file()
+            )
             self.assertTrue((qa / "plugins" / "viki" / "plugin.yaml").is_file())
             self.assertTrue(
                 (qa / "plugins" / "viki" / "history_projection.py").is_file()
@@ -85,11 +89,15 @@ for entry in source.iterdir():
             self.assertIn("--name viki-qa --force --yes", commands[0])
             self.assertIn("profile install", commands[1])
             self.assertIn("--name viki-edit --force --yes", commands[1])
-            self.assertEqual(commands[2], "profile update viki-qa --force-config --yes")
-            self.assertEqual(commands[3], "profile update viki-edit --force-config --yes")
+            self.assertIn("profile install", commands[2])
+            self.assertIn("--name viki-developer --force --yes", commands[2])
+            self.assertEqual(commands[3], "profile update viki-qa --force-config --yes")
+            self.assertEqual(commands[4], "profile update viki-edit --force-config --yes")
+            self.assertEqual(commands[5], "profile update viki-developer --force-config --yes")
 
             qa_config = (qa / "config.yaml").read_text()
             edit_config = (data / "profiles" / "viki-edit" / "config.yaml").read_text()
+            developer_config = (data / "profiles" / "viki-developer" / "config.yaml").read_text()
             self.assertIn('default: "gpt-test-model"', qa_config)
             self.assertIn("provider: openai-api", qa_config)
             self.assertNotIn("base_url:", qa_config)
@@ -104,6 +112,7 @@ for entry in source.iterdir():
             self.assertIn(
                 "cli: [memory, clarify, viki_read, viki_edit]", edit_platform
             )
+            self.assertIn("cli: [viki_develop]", developer_config)
 
 
 if __name__ == "__main__":

@@ -80,10 +80,9 @@ func TestHandleErrorMapsEveryDomainFailureToSafeHTTPResponse(t *testing.T) {
 		{store.ErrDuplicateSlug, http.StatusConflict, "duplicate_slug"},
 		{store.ErrInvalidHierarchy, http.StatusUnprocessableEntity, "invalid_page"},
 		{store.ErrInvalidReference, http.StatusUnprocessableEntity, "invalid_page"},
-		{governance.ErrRejectionReasonRequired, http.StatusUnprocessableEntity, "rejection_reason_required"},
-		{governance.ErrInvalidVote, http.StatusUnprocessableEntity, "invalid_vote"},
-		{governance.ErrUnresolvedRejection, http.StatusConflict, "unresolved_rejection"},
-		{governance.ErrRejectedProposalDependency, http.StatusConflict, "rejected_proposal_dependency"},
+		{governance.ErrObjectionReasonRequired, http.StatusUnprocessableEntity, "objection_reason_required"},
+		{governance.ErrUnresolvedObjection, http.StatusConflict, "unresolved_objection"},
+		{governance.ErrParentFeatureNotApproved, http.StatusConflict, "parent_feature_not_approved"},
 		{errors.New("field is required"), http.StatusUnprocessableEntity, "request_failed"},
 		{errors.New("database exploded"), http.StatusUnprocessableEntity, "request_failed"},
 	}
@@ -99,7 +98,7 @@ func TestHandleErrorMapsEveryDomainFailureToSafeHTTPResponse(t *testing.T) {
 
 func TestUserSafeErrorAllowsValidationLanguageOnly(t *testing.T) {
 	t.Parallel()
-	for _, message := range []string{"required value", "invalid value", "must exist", "cannot publish"} {
+	for _, message := range []string{"required value", "invalid value", "must exist", "cannot approve"} {
 		if got := userSafeError(errors.New(message)); got != message {
 			t.Fatalf("safe validation error = %q, want %q", got, message)
 		}

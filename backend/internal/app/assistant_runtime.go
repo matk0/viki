@@ -454,9 +454,16 @@ func (r *assistantRuntime) handleToolEvent(turn *assistantTurn, event hermes.Eve
 		return
 	}
 	result := unwrapToolResult(payload.Result)
-	if payload.Name == "propose_viki_changeset" {
-		if proposal := extractDraftProposal(result); proposal != nil {
-			r.publish(turn.ConversationID, "draft_proposed", map[string]any{"turnId": turn.ID, "mode": turn.Mode, "proposal": proposal})
+	if payload.Name == "apply_viki_draft_changeset" {
+		if turn.Drafts == nil {
+			turn.Drafts = map[string]model.AssistantDraftReceipt{}
+		}
+		for _, draft := range extractDraftReceipts(result) {
+			if _, duplicate := turn.Drafts[draft.RevisionID]; duplicate {
+				continue
+			}
+			turn.Drafts[draft.RevisionID] = draft
+			r.publish(turn.ConversationID, "draft_created", map[string]any{"turnId": turn.ID, "mode": turn.Mode, "draft": draft})
 		}
 		return
 	}
@@ -995,7 +1002,7 @@ func toolAllowed(mode model.AssistantMode, name string) bool {
 	switch name {
 	case "search_viki", "get_viki_page", "get_viki_revision":
 		return true
-	case "propose_viki_changeset":
+	case "apply_viki_draft_changeset":
 		return mode == model.AssistantEdit
 	default:
 		return false
@@ -1008,8 +1015,8 @@ func toolActivityLabel(name string) string {
 		return "Hľadám vo viki…"
 	case "get_viki_page", "get_viki_revision":
 		return "Čítam podklady vo viki…"
-	case "propose_viki_changeset":
-		return "Pripravujem návrh na schválenie…"
+	case "apply_viki_draft_changeset":
+		return "Vytváram drafty vo viki…"
 	default:
 		return "Pracujem s viki…"
 	}
@@ -1080,12 +1087,21 @@ func extractCitations(raw json.RawMessage) []model.Citation {
 	return result
 }
 
-func extractDraftProposal(raw json.RawMessage) *model.AssistantDraftProposal {
+func extractDraftReceipts(raw json.RawMessage) []model.AssistantDraftReceipt {
 	var envelope struct {
-		Proposal model.AssistantDraftProposal `json:"proposal"`
+		Drafts []model.AssistantDraftReceipt `json:"drafts"`
 	}
-	if json.Unmarshal(raw, &envelope) != nil || envelope.Proposal.ID == "" {
+	if json.Unmarshal(raw, &envelope) != nil {
 		return nil
 	}
-	return &envelope.Proposal
+	byRevision := make(map[string]model.AssistantDraftReceipt, len(envelope.Drafts))
+	for _, draft := range envelope.Drafts {
+		if draft.RevisionID == "" || draft.PageID == "" {
+			continue
+		}
+		if _, duplicate := byRevision[draft.RevisionID]; !duplicate {
+			byRevision[draft.RevisionID] = draft
+		}
+	}
+	return sortedDraftReceipts(byRevision)
 }

@@ -10,12 +10,10 @@ import {
   useState,
 } from 'react'
 import { api, openAssistantEventStream } from './api/client'
-import { useRouter } from './router'
 import type {
   AssistantConnectionState,
   AssistantConversation,
   AssistantConversationSummary,
-  AssistantDraftProposal,
   AssistantDraftReceipt,
   AssistantClarification,
   AssistantMessage,
@@ -44,7 +42,6 @@ interface AssistantValue {
   composer: string
   connection: AssistantConnectionState
   activity: Activity | null
-  proposals: Record<string, AssistantDraftProposal>
   clarification: PendingClarification | null
   clarificationResponse: string
   error: string
@@ -133,7 +130,6 @@ function isManagementCommand(content: string): boolean {
 export function AssistantProvider({ children }: { children: ReactNode }) {
   const { t } = useI18n()
   const { reloadPages } = useWorkspace()
-  const { navigate } = useRouter()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
   const [conversations, setConversations] = useState<AssistantConversationSummary[]>([])
   const [conversation, setConversation] = useState<AssistantConversation | null>(null)
@@ -142,7 +138,6 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const [composer, setComposer] = useState('')
   const [connection, setConnection] = useState<AssistantConnectionState>('connecting')
   const [activity, setActivity] = useState<Activity | null>(null)
-  const [proposals, setProposals] = useState<Record<string, AssistantDraftProposal>>({})
   const [clarification, setClarification] = useState<PendingClarification | null>(null)
   const [clarificationResponse, setClarificationResponse] = useState('')
   const [error, setError] = useState('')
@@ -235,16 +230,6 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         ? upsertAssistantMessage(current, event.data.turnId, event.data.mode, (message) => appendDraft(message, event.data.draft))
         : current)
       void Promise.resolve(reloadPages())
-      return
-    }
-    if (event.type === 'draft_proposed' || event.type === 'draft_published' || event.type === 'draft_discarded') {
-      const proposal = event.data.proposal
-      setProposals((current) => ({ ...current, [proposal.id]: proposal, [proposal.turnId]: proposal }))
-      if (event.type === 'draft_proposed') {
-        setActivity({ state: 'awaiting_approval', mode: event.data.mode })
-      } else {
-        void Promise.resolve(reloadPages())
-      }
       return
     }
     if (event.type === 'clarification') {
@@ -365,8 +350,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     setError('')
     setActivity({ state: 'submitting', mode })
     try {
-      const accepted = await api.sendAssistantMessage(conversation.id, content, mode)
-      if (mode === 'edit') navigate(`/drafts/${encodeURIComponent(accepted.turnId)}`)
+      await api.sendAssistantMessage(conversation.id, content, mode)
     } catch (reason) {
       setConversation((current) => current?.id === conversation.id
         ? { ...current, state: 'idle', messages: current.messages.filter((message) => message.id !== optimisticId) }
@@ -375,7 +359,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
       setActivity(null)
       setError(reason instanceof Error ? reason.message : t('assistant.sendFailed'))
     }
-  }, [composer, conversation, mode, modeAvailable, navigate, t])
+  }, [composer, conversation, mode, modeAvailable, t])
 
   const stop = useCallback(async () => {
     if (!conversation || !isConversationActive(conversation)) return
@@ -415,7 +399,6 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     composer,
     connection,
     activity,
-    proposals,
     clarification,
     clarificationResponse,
     error,
@@ -444,7 +427,6 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     loading,
     mode,
     modeAvailable,
-    proposals,
     reconnect,
     refresh,
     respondToClarification,

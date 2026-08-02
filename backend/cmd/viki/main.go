@@ -115,11 +115,13 @@ func newRuntimeGateway(ctx context.Context, managerConfig hermes.ManagerConfig) 
 
 func newRuntimeApplication(database runtimeDatabase, gateway runtimeGateway, cfg config.Config, logger *slog.Logger) runtimeApplication {
 	application := app.NewApplication(database.repository, gateway.gateway, app.Options{
-		CookieSecure:      cfg.CookieSecure,
-		SessionTTL:        cfg.SessionTTL,
-		FrontendDir:       cfg.FrontendDir,
-		HermesToolToken:   cfg.HermesToolToken,
-		HandoffSigningKey: cfg.HermesToolToken,
+		CookieSecure:           cfg.CookieSecure,
+		SessionTTL:             cfg.SessionTTL,
+		FrontendDir:            cfg.FrontendDir,
+		HermesToolToken:        cfg.HermesToolToken,
+		HandoffSigningKey:      cfg.HermesToolToken,
+		DevelopmentTargetURL:   cfg.DevelopmentTargetURL,
+		DevelopmentTargetToken: cfg.DevelopmentTargetToken,
 	}, logger)
 	return runtimeApplication{
 		publicHandler:   application.PublicHandler(),

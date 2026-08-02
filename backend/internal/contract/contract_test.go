@@ -16,15 +16,18 @@ func TestOpenAPIContractContainsCoreSurface(t *testing.T) {
 		"openapi: 3.1.0",
 		"/api/v1/auth/login:",
 		"/api/v1/pages/{pageId}/revisions:",
+		"/api/v1/revisions/{revisionId}/approve:",
 		"/api/v1/assistant/status:",
 		"/api/v1/assistant/conversations/{conversationId}/messages:",
 		"/api/v1/assistant/conversations/{conversationId}/events:",
 		"/api/v1/assistant/conversations/{conversationId}/stop:",
 		"/api/v1/assistant/conversations/{conversationId}/clarifications/{requestId}:",
-		"/api/v1/draft-proposals:",
 		"PageKind:",
 		"enum: [concept, feature, scenario]",
 		"ConceptKind:",
+		"InitialScenarioRequest:",
+		"enum: [draft, approved, superseded]",
+		"approvedRevisionId:",
 		"enum: [given, when, then, and, but]",
 	}
 	for _, value := range required {
@@ -32,7 +35,17 @@ func TestOpenAPIContractContainsCoreSurface(t *testing.T) {
 			t.Errorf("OpenAPI contract is missing %q", value)
 		}
 	}
-	for _, removed := range []string{"/api/v1/chats", "/api/v1/transcriptions"} {
+	for _, removed := range []string{
+		"/api/v1/chats",
+		"/api/v1/transcriptions",
+		"/api/v1/draft-proposals",
+		"/api/v1/revisions/{revisionId}/publish",
+		"enum: [draft, accepted, superseded]",
+		"acceptedRevisionId:",
+		"acceptedRevision:",
+		"acceptedAt:",
+		"aliases:",
+	} {
 		if strings.Contains(contract, removed) {
 			t.Errorf("OpenAPI contract still contains removed surface %q", removed)
 		}
@@ -54,8 +67,8 @@ func TestGeneratedTypesContainContractEnums(t *testing.T) {
 		content  string
 		required []string
 	}{
-		{"Go", string(goTypes), []string{"type PageKind string", `PageKind = "concept"`, `PageKind = "feature"`, `PageKind = "scenario"`, "type ConceptKind string", "type BDDKeyword string", `BDDKeyword = "given"`, `BDDKeyword = "but"`, "type AssistantConversation struct", "type AssistantStatus struct"}},
-		{"TypeScript", string(typescriptTypes), []string{`PageKind: "concept" | "feature" | "scenario"`, `ConceptKind: "noun" | "verb"`, `BDDKeyword: "given" | "when" | "then" | "and" | "but"`, `AssistantMode: "qa" | "edit"`, `AssistantConversation:`, `AssistantStatus:`}},
+		{"Go", string(goTypes), []string{"type PageKind string", `PageKind = "concept"`, `PageKind = "feature"`, `PageKind = "scenario"`, "type ConceptKind string", "type InitialScenarioRequest struct", `Approved   RevisionStatus = "approved"`, "ApprovedRevisionId", "type BDDKeyword string", `BDDKeyword = "given"`, `BDDKeyword = "but"`, "type AssistantConversation struct", "type AssistantStatus struct"}},
+		{"TypeScript", string(typescriptTypes), []string{`PageKind: "concept" | "feature" | "scenario"`, `RevisionStatus: "draft" | "approved" | "superseded"`, `approvedRevisionId?:`, `ConceptKind: "noun" | "verb"`, `InitialScenarioRequest:`, `BDDKeyword: "given" | "when" | "then" | "and" | "but"`, `AssistantMode: "qa" | "edit"`, `AssistantConversation:`, `AssistantStatus:`}},
 	}
 	for _, check := range checks {
 		for _, value := range check.required {
@@ -63,6 +76,9 @@ func TestGeneratedTypesContainContractEnums(t *testing.T) {
 				t.Errorf("generated %s types are missing %q", check.name, value)
 			}
 		}
+	}
+	if strings.Contains(string(goTypes), "Aliases") || strings.Contains(string(typescriptTypes), "aliases:") {
+		t.Error("generated API types still expose revision aliases")
 	}
 }
 
@@ -75,15 +91,15 @@ func TestCoverageCommandsArePartOfTheRepositoryContract(t *testing.T) {
 	}{
 		{
 			path: "../../../Makefile",
-				required: []string{
-					"test-coverage:",
-					"test-coverage-backend:",
-					"test-coverage-frontend:",
-					"test-coverage-hermes:",
-					"reset-test-database:",
-					"-coverpkg=./...",
-					"viki_test?sslmode=disable",
-				},
+			required: []string{
+				"test-coverage:",
+				"test-coverage-backend:",
+				"test-coverage-frontend:",
+				"test-coverage-hermes:",
+				"reset-test-database:",
+				"-coverpkg=./...",
+				"viki_test?sslmode=disable",
+			},
 		},
 		{
 			path:     "../../../frontend/package.json",

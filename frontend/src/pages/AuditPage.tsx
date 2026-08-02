@@ -18,8 +18,8 @@ export function AuditPage() {
 
 function auditLabel(action: string, locale: Locale): string {
   const labels = {
-    'page.created': 'audit.pageCreated', 'revision.saved': 'audit.revisionSaved', 'revision.published': 'audit.revisionPublished',
-    'comment.created': 'audit.commentCreated', 'comment.resolved': 'audit.commentResolved', 'vote.recorded': 'audit.voteRecorded',
+    'page.created': 'audit.pageCreated', 'revision.saved': 'audit.revisionSaved', 'revision.approved': 'audit.revisionApproved', 'revision.published': 'audit.revisionPublished',
+    'comment.created': 'audit.commentCreated', 'objection.created': 'audit.objectionCreated', 'objection.resolved': 'audit.objectionResolved',
     'assistant.drafts_created': 'audit.assistantDrafts', 'assistant.proposal_created': 'audit.assistantProposal',
     'assistant.proposal_published': 'audit.assistantPublished', 'assistant.proposal_discarded': 'audit.assistantDiscarded', 'ai.drafts_created': 'audit.assistantDrafts',
   } as const

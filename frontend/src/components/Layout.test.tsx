@@ -86,11 +86,12 @@ it('uses the supplied assistant-stars asset in both launcher states', () => {
   expect(openLauncher.querySelector('svg')).not.toBeInTheDocument()
 })
 
-it('uses Koncepty for concepts and Drafty for drafts', () => {
+it('keeps only Concepts and Features as primary content navigation', () => {
   renderLayout()
 
   expect(screen.getByRole('link', { name: 'Koncepty' })).toHaveAttribute('href', '/concepts')
-  expect(screen.getByRole('link', { name: 'Drafty' })).toHaveAttribute('href', '/drafts')
+  expect(screen.getByRole('link', { name: 'Funkcie' })).toHaveAttribute('href', '/features')
+  expect(screen.queryByRole('link', { name: 'Drafty' })).not.toBeInTheDocument()
 })
 
 it('places the language switch beside the viki wordmark in the sidebar header', () => {
@@ -112,7 +113,7 @@ it('navigates to features and switches the complete navigation to English', asyn
 
   expect(screen.getByRole('link', { name: 'Concepts' })).toHaveAttribute('href', '/concepts')
   expect(screen.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '/features')
-  expect(screen.getByRole('link', { name: 'Drafts' })).toHaveAttribute('href', '/drafts')
+  expect(screen.queryByRole('link', { name: 'Drafts' })).not.toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Change history' })).toHaveAttribute('href', '/audit')
   expect(screen.getByRole('switch', { name: 'Language' })).toHaveAttribute('aria-checked', 'true')
 
@@ -189,7 +190,7 @@ it('toggles the assistant launcher, cancels active dictation, logs out, and rend
 })
 
 it('marks each current navigation destination active', () => {
-  for (const [pathname, name] of [['/', 'Koncepty'], ['/features', 'Funkcie'], ['/drafts/one', 'Drafty'], ['/audit', 'História zmien']] as const) {
+  for (const [pathname, name] of [['/', 'Koncepty'], ['/features', 'Funkcie'], ['/audit', 'História zmien']] as const) {
     mocks.pathname = pathname
     const view = renderLayout()
     expect(screen.getByRole('link', { name })).toHaveClass('active')

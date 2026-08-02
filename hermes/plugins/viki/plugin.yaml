@@ -5,7 +5,10 @@ provides_tools:
   - search_viki
   - get_viki_page
   - get_viki_revision
-  - propose_viki_changeset
+  - apply_viki_draft_changeset
+  - claim_next_scenario
+  - complete_scenario_development
+  - block_scenario_development
 requires_env:
   - name: VIKI_HERMES_TOOL_TOKEN
     description: Service credential for the private viki Hermes tool API

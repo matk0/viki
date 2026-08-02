@@ -34,7 +34,7 @@ class VikiPluginTest(unittest.TestCase):
         self.env = patch.dict(
             os.environ,
             {
-                "VIKI_INTERNAL_URL": "http://127.0.0.1:8090",
+                "VIKI_INTERNAL_URL": "http://viki:8090",
                 "VIKI_HERMES_TOOL_TOKEN": "service-secret",
             },
             clear=False,
@@ -67,7 +67,7 @@ class VikiPluginTest(unittest.TestCase):
         self.assertEqual(result, {"documents": []})
         self.assertEqual(
             request.full_url,
-            "http://127.0.0.1:8090/internal/v1/hermes/tools/search_viki",
+            "http://viki:8090/internal/v1/hermes/tools/search_viki",
         )
         self.assertEqual(request.get_header("Authorization"), "Bearer service-secret")
         self.assertEqual(request.get_header("X-hermes-session-id"), "durable-session-123")
@@ -94,6 +94,10 @@ class VikiPluginTest(unittest.TestCase):
         with patch.dict(sys.modules, {"hermes_constants": hermes_constants}):
             with self.assertRaisesRegex(RuntimeError, "not scoped"):
                 tools._runtime_profile()
+
+        hermes_constants.get_hermes_home = lambda: "/opt/data/profiles/viki-developer"
+        with patch.dict(sys.modules, {"hermes_constants": hermes_constants}):
+            self.assertEqual(tools._runtime_profile(), "developer")
 
     def test_tool_rejects_unmanaged_session_and_unsafe_configuration(self):
         with patch.object(tools, "_runtime_profile", side_effect=RuntimeError):
@@ -134,7 +138,7 @@ class VikiPluginTest(unittest.TestCase):
             tools, "urlopen"
         ) as open_mock:
             result = json.loads(
-                tools.propose_viki_changeset(
+                tools.apply_viki_draft_changeset(
                     {"summary": "Koncept", "operations": []},
                     session_id="durable-session-123",
                 )
@@ -149,7 +153,11 @@ class VikiPluginTest(unittest.TestCase):
             [
                 FakeResponse({"result": {"pageId": "page-1"}}),
                 FakeResponse({"result": {"revisionId": "revision-1"}}),
-                FakeResponse({"result": {"proposal": {"id": "proposal-1"}}}),
+                FakeResponse({"result": {"drafts": [{
+                    "revisionId": "revision-draft",
+                    "pageId": "page-draft",
+                    "pageTitle": "Zmluva",
+                }]}}),
                 FakeResponse({"error": {"code": "conflict", "message": "stale"}}),
                 FakeResponse({"unexpected": True}),
                 FakeResponse(b"not-json"),
@@ -175,8 +183,8 @@ class VikiPluginTest(unittest.TestCase):
                     {"revisionId": "revision-1"}, session_id="session-1"
                 )
             )
-            proposal = json.loads(
-                tools.propose_viki_changeset(
+            drafts = json.loads(
+                tools.apply_viki_draft_changeset(
                     {"summary": "Zmena", "operations": []}, session_id="session-1"
                 )
             )
@@ -195,13 +203,17 @@ class VikiPluginTest(unittest.TestCase):
 
         self.assertEqual(page, {"pageId": "page-1"})
         self.assertEqual(revision, {"revisionId": "revision-1"})
-        self.assertEqual(proposal, {"proposal": {"id": "proposal-1"}})
+        self.assertEqual(drafts, {"drafts": [{
+            "revisionId": "revision-draft",
+            "pageId": "page-draft",
+            "pageTitle": "Zmluva",
+        }]})
         self.assertEqual(upstream_error["error"]["code"], "conflict")
         for result in (unexpected, malformed, invalid_unicode):
             self.assertEqual(result["error"]["code"], "invalid_upstream_response")
         self.assertEqual(
             calls[0].full_url,
-            "http://127.0.0.1:8090/internal/v1/hermes/tools/get_viki_page",
+            "http://viki:8090/internal/v1/hermes/tools/get_viki_page",
         )
         self.assertIsNone(calls[0].get_header("X-hermes-task-id"))
 
@@ -254,15 +266,22 @@ class VikiPluginTest(unittest.TestCase):
         for forbidden in ("userid", "organizationid", "sessionid", "profile"):
             self.assertNotIn(forbidden, schemas_json)
 
-    def test_tool_schemas_do_not_expose_removed_illustrative_metadata(self):
-        self.assertNotIn("illustrative", json.dumps(schemas.ALL, sort_keys=True))
+    def test_tool_schemas_do_not_expose_removed_revision_metadata(self):
+        encoded = json.dumps(schemas.ALL, sort_keys=True)
+
+        self.assertNotIn("illustrative", encoded)
+        self.assertNotIn("aliases", encoded)
 
     def test_changeset_tool_requires_linked_feature_vocabulary(self):
-        description = schemas.PROPOSE_CHANGESET["description"]
+        description = schemas.APPLY_DRAFT_CHANGESET["description"]
 
         self.assertIn("všetky použité koncepty", description)
         self.assertIn("targetClientKey", description)
         self.assertIn("steps musí byť prázdne", description)
+        self.assertIn("každá nová funkcia", description.lower())
+        self.assertIn("aspoň jeden scenár", description.lower())
+        self.assertIn("draft", description)
+        self.assertIn("nikdy ich neschváli", description)
 
     def test_registers_exact_public_names_in_narrow_toolsets(self):
         registrations = []
@@ -279,7 +298,10 @@ class VikiPluginTest(unittest.TestCase):
                 ("search_viki", "viki_read"),
                 ("get_viki_page", "viki_read"),
                 ("get_viki_revision", "viki_read"),
-                ("propose_viki_changeset", "viki_edit"),
+                ("apply_viki_draft_changeset", "viki_edit"),
+                ("claim_next_scenario", "viki_develop"),
+                ("complete_scenario_development", "viki_develop"),
+                ("block_scenario_development", "viki_develop"),
             ],
         )
         self.assertEqual(
@@ -290,6 +312,33 @@ class VikiPluginTest(unittest.TestCase):
             set(tools._ENDPOINTS.values()),
             {item["name"] for item in registrations},
         )
+
+    def test_developer_tools_are_available_only_to_the_developer_profile(self):
+        responses = iter([
+            FakeResponse({"result": {"revisionId": "revision-1", "status": "running"}}),
+            FakeResponse({"result": {"revisionId": "revision-1", "status": "developed"}}),
+            FakeResponse({"result": {"revisionId": "revision-2", "status": "blocked"}}),
+        ])
+        with patch.object(tools, "_runtime_profile", return_value="developer"), patch.object(
+            tools, "urlopen", side_effect=lambda *_, **__: next(responses)
+        ):
+            claimed = json.loads(tools.claim_next_scenario({}, session_id="cron-1"))
+            completed = json.loads(tools.complete_scenario_development(
+                {"implementation": "implementation"}, session_id="cron-1"
+            ))
+            blocked = json.loads(tools.block_scenario_development(
+                {"reason": "missing API"}, session_id="cron-2"
+            ))
+
+        self.assertEqual(claimed["status"], "running")
+        self.assertEqual(completed["status"], "developed")
+        self.assertEqual(blocked["status"], "blocked")
+        with patch.object(tools, "_runtime_profile", return_value="edit"), patch.object(
+            tools, "urlopen"
+        ) as open_mock:
+            result = json.loads(tools.claim_next_scenario({}, session_id="session-1"))
+        self.assertEqual(result["error"]["code"], "profile_forbidden")
+        open_mock.assert_not_called()
 
     def test_history_projection_exposes_only_viki_receipts(self):
         def original(_history):
@@ -307,7 +356,7 @@ class VikiPluginTest(unittest.TestCase):
                 },
                 {
                     "role": "tool",
-                    "name": "propose_viki_changeset",
+                    "name": "apply_viki_draft_changeset",
                     "context": "secret changeset argument",
                 },
                 {
@@ -347,16 +396,15 @@ class VikiPluginTest(unittest.TestCase):
             },
             {
                 "role": "tool",
-                "tool_name": "propose_viki_changeset",
+                "tool_name": "apply_viki_draft_changeset",
                 "content": json.dumps(
                     {
-                        "proposal": {
-                            "id": "proposal-2",
-                            "turnId": "proposal-2",
-                            "summary": "Nový koncept",
-                            "status": "awaiting_approval",
-                            "operations": [{"content": {"bodyMd": "never expose generated prose"}}],
-                        }
+                        "drafts": [{
+                            "revisionId": "revision-2",
+                            "pageId": "page-2",
+                            "pageTitle": "Nový koncept",
+                            "bodyMd": "never expose generated prose",
+                        }]
                     }
                 ),
             },
@@ -401,17 +449,15 @@ class VikiPluginTest(unittest.TestCase):
             projected[3],
             {
                 "role": "tool",
-                "name": "propose_viki_changeset",
-                "context": "Návrh zmien vo viki",
+                "name": "apply_viki_draft_changeset",
+                "context": "Vytvorenie draftov vo viki",
                 "result": {
                     "citations": [],
-                    "drafts": [],
-                    "proposal": {
-                        "id": "proposal-2",
-                        "turnId": "proposal-2",
-                        "summary": "Nový koncept",
-                        "status": "awaiting_approval",
-                    },
+                    "drafts": [{
+                        "revisionId": "revision-2",
+                        "pageId": "page-2",
+                        "pageTitle": "Nový koncept",
+                    }],
                 },
             },
         )
@@ -438,7 +484,7 @@ class VikiPluginTest(unittest.TestCase):
                 {"role": "tool", "name": "search_viki"},
                 {"role": "tool", "name": "get_viki_page"},
                 {"role": "tool", "name": "get_viki_revision"},
-                {"role": "tool", "name": "propose_viki_changeset"},
+                {"role": "tool", "name": "apply_viki_draft_changeset"},
                 {"role": "tool", "name": "search_viki"},
                 {"role": "tool", "name": "unknown"},
             ]
@@ -472,7 +518,7 @@ class VikiPluginTest(unittest.TestCase):
                 "content": bytearray(
                     json.dumps(
                         {
-                            "acceptedRevision": page_revision,
+                            "approvedRevision": page_revision,
                             "draftRevision": None,
                         }
                     ).encode()
@@ -482,7 +528,7 @@ class VikiPluginTest(unittest.TestCase):
                 "role": "tool",
                 "content": json.dumps(json.dumps(page_revision)),
             },
-            {"role": "tool", "content": []},
+            {"role": "tool", "content": {"drafts": [revision, revision, None, {}]}},
         ]
 
         self.assertTrue(history_projection.install(Server))
@@ -496,7 +542,14 @@ class VikiPluginTest(unittest.TestCase):
         }])
         self.assertEqual(projected[3]["result"]["citations"], [page_revision])
         self.assertEqual(projected[4]["result"]["citations"], [page_revision])
-        self.assertIsNone(projected[5]["result"]["proposal"])
+        self.assertEqual(projected[5]["result"], {
+            "citations": [],
+            "drafts": [{
+                "revisionId": "revision-1",
+                "pageId": "page-1",
+                "pageTitle": "Zmluva",
+            }],
+        })
         self.assertEqual(projected[6]["result"], {"citations": [], "drafts": []})
         self.assertNotIn("result", projected[7])
 

@@ -6,9 +6,12 @@ _STEP = {
             "type": "string",
             "enum": ["given", "when", "then", "and", "but"],
         },
+        "definitionId": {"type": ["string", "null"]},
+        "expression": {"type": "string"},
+        "arguments": {"type": "array", "items": {"type": "string"}},
         "text": {"type": "string"},
     },
-    "required": ["keyword", "text"],
+    "required": ["keyword", "definitionId", "expression", "arguments", "text"],
 }
 
 _REFERENCE = {
@@ -32,14 +35,12 @@ _CONTENT = {
     "properties": {
         "title": {"type": "string"},
         "bodyMd": {"type": "string"},
-        "aliases": {"type": "array", "items": {"type": "string"}},
         "steps": {"type": "array", "items": _STEP},
         "references": {"type": "array", "items": _REFERENCE},
     },
     "required": [
         "title",
         "bodyMd",
-        "aliases",
         "steps",
         "references",
     ],
@@ -122,14 +123,19 @@ GET_REVISION = {
     },
 }
 
-PROPOSE_CHANGESET = {
-    "name": "propose_viki_changeset",
+APPLY_DRAFT_CHANGESET = {
+    "name": "apply_viki_draft_changeset",
     "description": (
-        "Priprav návrh nových stránok alebo revízií na kontrolu človekom. Nástroj nič "
-        "nevytvorí ani nepublikuje. Použi ho po získaní presných ID a vyjasnení nejednoznačností. "
+        "Vytvor atómovo nové draftové stránky alebo draftové revízie na kontrolu človekom. "
+        "Nástroj drafty vytvorí, ale nikdy ich neschváli ani nepublikuje. Použi ho po získaní "
+        "presných ID a vyjasnení nejednoznačností. "
         "Funkcia aj scenár musia mať v references všetky použité koncepty. Chýbajúci koncept pridaj "
         "ako skoršiu concept operáciu a prepoj ho cez targetClientKey. Pre kind=feature "
-        "steps musí byť prázdne; BDD kroky patria iba do kind=scenario, ktorý má rodičovskú feature."
+        "steps musí byť prázdne; BDD kroky patria iba do kind=scenario, ktorý má rodičovskú feature. "
+        "Pri krokoch scenára opätovne použi definitionId zo stepDefinitions v search_viki vždy, keď existuje "
+        "významovo zodpovedajúca definícia. Novú expression navrhni iba vtedy, keď zodpovedajúca definícia neexistuje. "
+        "Každá nová funkcia musí mať v tej istej sade zmien aspoň jeden scenár vytvorený po nej "
+        "a prepojený na funkciu cez parentClientKey."
     ),
     "parameters": {
         "type": "object",
@@ -142,4 +148,48 @@ PROPOSE_CHANGESET = {
     },
 }
 
-ALL = [SEARCH, GET_PAGE, GET_REVISION, PROPOSE_CHANGESET]
+CLAIM_NEXT_SCENARIO = {
+    "name": "claim_next_scenario",
+    "description": "Vyzdvihni najstarší schválený scenár, ktorý čaká na vývoj.",
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {},
+    },
+}
+
+COMPLETE_SCENARIO_DEVELOPMENT = {
+    "name": "complete_scenario_development",
+    "description": "Odošli implementáciu aktuálneho scenára do cieľového systému a označ ho ako vyvinutý.",
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "implementation": {"type": "string", "minLength": 1},
+        },
+        "required": ["implementation"],
+    },
+}
+
+BLOCK_SCENARIO_DEVELOPMENT = {
+    "name": "block_scenario_development",
+    "description": "Označ aktuálny scenár ako zablokovaný, ak ho nemožno implementovať.",
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "reason": {"type": "string", "minLength": 1},
+        },
+        "required": ["reason"],
+    },
+}
+
+ALL = [
+    SEARCH,
+    GET_PAGE,
+    GET_REVISION,
+    APPLY_DRAFT_CHANGESET,
+    CLAIM_NEXT_SCENARIO,
+    COMPLETE_SCENARIO_DEVELOPMENT,
+    BLOCK_SCENARIO_DEVELOPMENT,
+]

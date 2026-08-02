@@ -24,10 +24,13 @@ describe('i18n', () => {
     render(<Probe />)
     fireEvent.click(screen.getByRole('button', { name: 'set English' }))
     expect(screen.getByLabelText('locale')).toHaveTextContent('sk')
-    expect(screen.getByLabelText('message')).toHaveTextContent('Kontrola revízie #4')
-    expect(translate('sk', 'review.revision')).toBe('Kontrola revízie #{number}')
-    expect(translate('sk', 'review.revision', {})).toBe('Kontrola revízie #{number}')
-    expect(translate('en', 'review.revision', { number: 7 })).toBe('Review revision #7')
+    expect(screen.getByLabelText('message')).toHaveTextContent('Kontrola verzie #4')
+    expect(translate('sk', 'review.revision')).toBe('Kontrola verzie #{number}')
+    expect(translate('sk', 'review.revision', {})).toBe('Kontrola verzie #{number}')
+    expect(translate('en', 'review.revision', { number: 7 })).toBe('Review version #7')
+    const keywords = ['bdd.given', 'bdd.when', 'bdd.then', 'bdd.and', 'bdd.but'] as const
+    expect(keywords.map((key) => translate('sk', key))).toEqual(['Pokiaľ', 'Keď', 'Potom', 'A zároveň', 'Ale'])
+    expect(keywords.map((key) => translate('en', key))).toEqual(['Given', 'When', 'Then', 'And', 'But'])
   })
 
   it('loads the stored locale, persists changes, and toggles with click, Enter, and Space', async () => {

@@ -1,0 +1,4 @@
+#!/command/with-contenv sh
+set -eu
+
+exec s6-setuidgid hermes python3 /opt/viki-hermes/private_gateway_proxy.py

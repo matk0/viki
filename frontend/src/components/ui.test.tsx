@@ -4,8 +4,8 @@ import type { Page } from '../api/types'
 import { EmptyState, formatDate, kindLabel, Markdown, Spinner, StatusBadge } from './ui'
 
 const page = (overrides: Partial<Page> = {}): Page => ({
-  id: 'page', kind: 'concept', conceptKind: 'noun', slug: 'page', title: 'Page', accepted: false, hasDraft: false,
-  unresolvedRejections: 0, createdAt: '', updatedAt: '', ...overrides,
+  id: 'page', kind: 'concept', conceptKind: 'noun', slug: 'page', title: 'Page', approved: false, hasDraft: false,
+  unresolvedObjections: 0, createdAt: '', updatedAt: '', ...overrides,
 })
 
 it('renders spinner and empty-state defaults and optional content', () => {
@@ -17,16 +17,18 @@ it('renders spinner and empty-state defaults and optional content', () => {
 })
 
 it('resolves every explicit and page-derived status', () => {
-  const { container, rerender } = render(<StatusBadge status="accepted" />)
-  expect(container.firstChild).toHaveClass('accepted')
+  const { container, rerender } = render(<StatusBadge status="approved" />)
+  expect(container.firstChild).toHaveClass('approved')
+  expect(container.firstChild).toHaveTextContent('Schválené')
   rerender(<StatusBadge status="superseded" />)
   expect(container.firstChild).toHaveTextContent('Nahradené')
-  rerender(<StatusBadge page={page({ unresolvedRejections: 1, accepted: true, hasDraft: true })} />)
-  expect(container.firstChild).toHaveClass('rejected')
+  rerender(<StatusBadge page={page({ unresolvedObjections: 1, approved: true, hasDraft: true })} />)
+  expect(container.firstChild).toHaveClass('draft')
+  expect(container.firstChild).toHaveTextContent('Draft')
   rerender(<StatusBadge page={page({ hasDraft: true })} />)
   expect(container.firstChild).toHaveClass('draft')
-  rerender(<StatusBadge page={page({ accepted: true })} />)
-  expect(container.firstChild).toHaveClass('accepted')
+  rerender(<StatusBadge page={page({ approved: true })} />)
+  expect(container.firstChild).toHaveClass('approved')
   rerender(<StatusBadge page={page()} />)
   expect(container.firstChild).toHaveClass('draft')
   rerender(<StatusBadge status="draft" />)

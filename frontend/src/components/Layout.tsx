@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   Box,
   Clock3,
-  Files,
   LogOut,
   Menu,
   Search,
@@ -25,6 +24,7 @@ export function Layout({ children }: { children: ReactNode }) {
     assistantOpen,
     setAssistantOpen,
     newPageKind,
+    newPageParentId,
     closeNewPage,
   } = useWorkspace();
   const { pathname, navigate } = useRouter();
@@ -116,13 +116,6 @@ export function Layout({ children }: { children: ReactNode }) {
             {t('kind.features')}
           </NavItem>
           <NavItem
-            to="/drafts"
-            active={pathname.startsWith('/drafts')}
-            icon={<Files size={16} />}
-          >
-            {t('nav.drafts')}
-          </NavItem>
-          <NavItem
             to="/audit"
             active={pathname === '/audit'}
             icon={<Clock3 size={16} />}
@@ -161,7 +154,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <AssistantPanel />
         </aside>
       )}
-      {newPageKind && <NewPageDialog initialKind={newPageKind} onClose={closeNewPage} />}
+      {newPageKind && <NewPageDialog initialKind={newPageKind} parentId={newPageParentId} onClose={closeNewPage} />}
     </div>
   );
 }

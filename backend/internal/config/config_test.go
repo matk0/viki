@@ -31,24 +31,29 @@ func TestLoadUsesSafeLocalDefaults(t *testing.T) {
 	if cfg.SessionTTL != 12*time.Hour || cfg.FrontendDir != "../frontend/dist" {
 		t.Fatalf("unexpected local defaults: ttl=%s frontend=%q", cfg.SessionTTL, cfg.FrontendDir)
 	}
+	if cfg.DevelopmentTargetURL != "http://127.0.0.1:8091" || cfg.DevelopmentTargetToken != "" {
+		t.Fatalf("unexpected development target defaults: url=%q token=%q", cfg.DevelopmentTargetURL, cfg.DevelopmentTargetToken)
+	}
 }
 
 func TestLoadReadsEverySupportedOverride(t *testing.T) {
 	clearConfigEnvironment(t)
 	overrides := map[string]string{
-		"VIKI_ADDRESS":           "localhost:8081",
-		"VIKI_INTERNAL_ADDRESS":  "[::1]:8091",
-		"DATABASE_URL":           "postgres://example.test/viki",
-		"INITIAL_USER_PASSWORD":  "secret",
-		"HERMES_QA_WS_URL":       "ws://localhost:9219/ws",
-		"HERMES_EDIT_WS_URL":     "ws://localhost:9220/ws",
-		"HERMES_QA_TOKEN":        "qa-token",
-		"HERMES_EDIT_TOKEN":      "edit-token",
-		"HERMES_QA_CONFIGURED":   "true",
-		"HERMES_EDIT_CONFIGURED": "not-a-boolean",
-		"VIKI_HERMES_TOOL_TOKEN": "tool-token",
-		"COOKIE_SECURE":          "true",
-		"FRONTEND_DIR":           "/srv/viki/public",
+		"VIKI_ADDRESS":             "localhost:8081",
+		"VIKI_INTERNAL_ADDRESS":    "[::1]:8091",
+		"DATABASE_URL":             "postgres://example.test/viki",
+		"INITIAL_USER_PASSWORD":    "secret",
+		"HERMES_QA_WS_URL":         "ws://localhost:9219/ws",
+		"HERMES_EDIT_WS_URL":       "ws://localhost:9220/ws",
+		"HERMES_QA_TOKEN":          "qa-token",
+		"HERMES_EDIT_TOKEN":        "edit-token",
+		"HERMES_QA_CONFIGURED":     "true",
+		"HERMES_EDIT_CONFIGURED":   "not-a-boolean",
+		"VIKI_HERMES_TOOL_TOKEN":   "tool-token",
+		"COOKIE_SECURE":            "true",
+		"FRONTEND_DIR":             "/srv/viki/public",
+		"DEVELOPMENT_TARGET_URL":   "http://mock-target:8091",
+		"DEVELOPMENT_TARGET_TOKEN": "target-token",
 	}
 	for name, value := range overrides {
 		t.Setenv(name, value)
@@ -74,9 +79,12 @@ func TestLoadReadsEverySupportedOverride(t *testing.T) {
 	if cfg.FrontendDir != "/srv/viki/public" {
 		t.Fatalf("frontend override = %q", cfg.FrontendDir)
 	}
+	if cfg.DevelopmentTargetURL != "http://mock-target:8091" || cfg.DevelopmentTargetToken != "target-token" {
+		t.Fatalf("development target overrides were not loaded: %+v", cfg)
+	}
 }
 
-func TestLoadRequiresPasswordAndLoopbackInternalListener(t *testing.T) {
+func TestLoadRequiresPasswordAndSafeInternalListener(t *testing.T) {
 	clearConfigEnvironment(t)
 	if _, err := config.Load(); err == nil {
 		t.Fatal("missing initial password was accepted")
@@ -92,6 +100,26 @@ func TestLoadRequiresPasswordAndLoopbackInternalListener(t *testing.T) {
 				t.Fatalf("unsafe internal address %q was accepted", address)
 			}
 		})
+	}
+}
+
+func TestLoadAllowsAuthenticatedPrivateNetworkInternalListener(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("INITIAL_USER_PASSWORD", "password")
+	t.Setenv("VIKI_INTERNAL_ADDRESS", "0.0.0.0:8090")
+	t.Setenv("VIKI_HERMES_TOOL_TOKEN", "service-token")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.InternalAddress != "0.0.0.0:8090" {
+		t.Fatalf("internal address = %q", cfg.InternalAddress)
+	}
+
+	t.Setenv("VIKI_HERMES_TOOL_TOKEN", "")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("wildcard internal listener without service authentication was accepted")
 	}
 }
 
@@ -111,6 +139,8 @@ func clearConfigEnvironment(t *testing.T) {
 		"VIKI_HERMES_TOOL_TOKEN",
 		"COOKIE_SECURE",
 		"FRONTEND_DIR",
+		"DEVELOPMENT_TARGET_URL",
+		"DEVELOPMENT_TARGET_TOKEN",
 	} {
 		t.Setenv(name, "")
 	}

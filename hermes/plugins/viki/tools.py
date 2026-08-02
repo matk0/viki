@@ -6,12 +6,15 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 
-_PROFILE_NAMES = {"viki-qa": "qa", "viki-edit": "edit"}
+_PROFILE_NAMES = {"viki-qa": "qa", "viki-edit": "edit", "viki-developer": "developer"}
 _ENDPOINTS = {
     "search": "search_viki",
     "get_page": "get_viki_page",
     "get_revision": "get_viki_revision",
-    "propose_changeset": "propose_viki_changeset",
+    "apply_draft_changeset": "apply_viki_draft_changeset",
+	"claim_scenario": "claim_next_scenario",
+	"complete_development": "complete_scenario_development",
+	"block_development": "block_scenario_development",
 }
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
@@ -35,10 +38,11 @@ def _runtime_profile() -> str:
 
 
 def _internal_base_url() -> str:
-    raw = os.environ.get("VIKI_INTERNAL_URL", "http://127.0.0.1:8090").rstrip("/")
+    raw = os.environ.get("VIKI_INTERNAL_URL", "http://viki:8090").rstrip("/")
     parsed = urlsplit(raw)
-    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise RuntimeError("VIKI_INTERNAL_URL must be an HTTP loopback URL")
+    allowed_hosts = {"viki", "127.0.0.1", "localhost", "::1"}
+    if parsed.scheme != "http" or parsed.hostname not in allowed_hosts:
+        raise RuntimeError("VIKI_INTERNAL_URL must target the managed viki service")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise RuntimeError("VIKI_INTERNAL_URL contains unsupported URL components")
     return raw
@@ -57,7 +61,7 @@ def _decode_response(payload: bytes) -> str:
     return _error("invalid_upstream_response", "viki vrátilo neočakávanú odpoveď")
 
 
-def _call(endpoint: str, args: dict, kwargs: dict, *, edit_only: bool = False) -> str:
+def _call(endpoint: str, args: dict, kwargs: dict, *, profiles: set[str] | None = None) -> str:
     session_id = str(kwargs.get("session_id") or "").strip()
     if not session_id:
         return _error(
@@ -72,8 +76,8 @@ def _call(endpoint: str, args: dict, kwargs: dict, *, edit_only: bool = False) -
             "missing_runtime_context",
             "Hermes relácia nie je priradená k spravovanému profilu viki.",
         )
-    if edit_only and profile != "edit":
-        return _error("profile_forbidden", "Profil Otázky nesmie zapisovať drafty.")
+    if profiles is not None and profile not in profiles:
+        return _error("profile_forbidden", "Tento nástroj nie je povolený pre aktuálny profil.")
 
     token = os.environ.get("VIKI_HERMES_TOOL_TOKEN", "").strip()
     if not token:
@@ -127,5 +131,17 @@ def get_viki_revision(args: dict, **kwargs) -> str:
     return _call(_ENDPOINTS["get_revision"], args, kwargs)
 
 
-def propose_viki_changeset(args: dict, **kwargs) -> str:
-    return _call(_ENDPOINTS["propose_changeset"], args, kwargs, edit_only=True)
+def apply_viki_draft_changeset(args: dict, **kwargs) -> str:
+    return _call(_ENDPOINTS["apply_draft_changeset"], args, kwargs, profiles={"edit"})
+
+
+def claim_next_scenario(args: dict, **kwargs) -> str:
+    return _call(_ENDPOINTS["claim_scenario"], args, kwargs, profiles={"developer"})
+
+
+def complete_scenario_development(args: dict, **kwargs) -> str:
+    return _call(_ENDPOINTS["complete_development"], args, kwargs, profiles={"developer"})
+
+
+def block_scenario_development(args: dict, **kwargs) -> str:
+    return _call(_ENDPOINTS["block_development"], args, kwargs, profiles={"developer"})

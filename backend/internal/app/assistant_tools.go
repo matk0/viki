@@ -13,6 +13,7 @@ import (
 func (s *Server) internalHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/hermes/tools/{tool}", s.handleHermesTool)
+	mux.HandleFunc("GET /internal/v1/development/pending", s.handleDevelopmentPending)
 	return s.recover(s.securityHeaders(mux))
 }
 
@@ -22,8 +23,22 @@ func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) 
 		writeError(w, http.StatusUnauthorized, "invalid_service_credential", "Service credential is not valid.")
 		return
 	}
-	mode := normalizeHermesProfile(request.Header.Get("X-Hermes-Profile"))
+	presentedProfile := strings.TrimSpace(request.Header.Get("X-Hermes-Profile"))
 	sessionID := strings.TrimSpace(request.Header.Get("X-Hermes-Session-ID"))
+	if presentedProfile == "developer" || presentedProfile == "viki-developer" {
+		if sessionID == "" {
+			writeError(w, http.StatusForbidden, "invalid_hermes_identity", "Hermes identity is not active.")
+			return
+		}
+		tool := strings.TrimSpace(request.PathValue("tool"))
+		if !developerToolAllowed(tool) {
+			writeError(w, http.StatusForbidden, "tool_not_allowed", "Tool is not allowed for this Hermes profile.")
+			return
+		}
+		s.handleDeveloperTool(w, request, tool)
+		return
+	}
+	mode := normalizeHermesProfile(presentedProfile)
 	if (mode != model.AssistantQA && mode != model.AssistantEdit) || sessionID == "" {
 		writeError(w, http.StatusForbidden, "invalid_hermes_identity", "Hermes identity is not active.")
 		return
@@ -46,13 +61,93 @@ func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) 
 
 	switch tool {
 	case "search_viki":
-		s.handleHermesSearch(w, request, conversation)
+		s.handleHermesSearch(w, request, conversation, mode)
 	case "get_viki_page":
 		s.handleHermesGetPage(w, request, conversation)
 	case "get_viki_revision":
 		s.handleHermesGetRevision(w, request, conversation)
-	case "propose_viki_changeset":
-		s.handleHermesProposeChanges(w, request, conversation, turn)
+	case "apply_viki_draft_changeset":
+		s.handleHermesApplyDraftChanges(w, request, conversation, turn)
+	}
+}
+
+func (s *Server) handleDevelopmentPending(w http.ResponseWriter, request *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !s.authorizeHermesToolRequest(request) {
+		writeError(w, http.StatusUnauthorized, "invalid_service_credential", "Service credential is not valid.")
+		return
+	}
+	queued, err := s.repository.HasQueuedScenarioDevelopment(request.Context())
+	if err != nil {
+		s.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"wakeAgent": queued})
+}
+
+func developerToolAllowed(name string) bool {
+	switch name {
+	case "claim_next_scenario", "complete_scenario_development", "block_scenario_development":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) handleDeveloperTool(w http.ResponseWriter, request *http.Request, tool string) {
+	switch tool {
+	case "claim_next_scenario":
+		var input struct{}
+		if !decodeJSON(w, request, &input) {
+			return
+		}
+		task, err := s.repository.ClaimScenarioDevelopment(request.Context())
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": task})
+	case "complete_scenario_development":
+		var input struct {
+			Implementation string `json:"implementation"`
+		}
+		if !decodeJSON(w, request, &input) {
+			return
+		}
+		input.Implementation = strings.TrimSpace(input.Implementation)
+		if input.Implementation == "" {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_implementation", "implementation is required")
+			return
+		}
+		receipt, err := s.target.Apply(request.Context(), input.Implementation)
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		development, err := s.repository.CompleteScenarioDevelopment(request.Context(), receipt)
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": development})
+	case "block_scenario_development":
+		var input struct {
+			Reason string `json:"reason"`
+		}
+		if !decodeJSON(w, request, &input) {
+			return
+		}
+		input.Reason = strings.TrimSpace(input.Reason)
+		if input.Reason == "" {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_reason", "reason is required")
+			return
+		}
+		development, err := s.repository.BlockScenarioDevelopment(request.Context(), input.Reason)
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": development})
 	}
 }
 
@@ -70,7 +165,7 @@ func (s *Server) authorizeHermesToolRequest(request *http.Request) bool {
 	return subtle.ConstantTimeCompare(expectedHash, providedHash) == 1
 }
 
-func (s *Server) handleHermesSearch(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation) {
+func (s *Server) handleHermesSearch(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation, mode model.AssistantMode) {
 	var input struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
@@ -91,7 +186,16 @@ func (s *Server) handleHermesSearch(w http.ResponseWriter, request *http.Request
 		s.handleError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"result": map[string]any{"documents": documents}})
+	result := map[string]any{"documents": documents}
+	if mode == model.AssistantEdit {
+		definitions, err := s.repository.ListStepDefinitions(request.Context(), conversation.OrganizationID, input.Query, nil)
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		result["stepDefinitions"] = definitions
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": result})
 }
 
 func (s *Server) handleHermesGetPage(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation) {
@@ -107,8 +211,8 @@ func (s *Server) handleHermesGetPage(w http.ResponseWriter, request *http.Reques
 		return
 	}
 	result := map[string]any{"page": detail.Page}
-	if detail.AcceptedRevision != nil {
-		result["acceptedRevision"] = detail.AcceptedRevision
+	if detail.ApprovedRevision != nil {
+		result["approvedRevision"] = detail.ApprovedRevision
 	}
 	if detail.DraftRevision != nil {
 		result["draftRevision"] = detail.DraftRevision
@@ -133,16 +237,16 @@ func (s *Server) handleHermesGetRevision(w http.ResponseWriter, request *http.Re
 		s.handleError(w, err)
 		return
 	}
-	accepted := detail.Page.AcceptedRevisionID != nil && *detail.Page.AcceptedRevisionID == revision.ID
+	approved := detail.Page.ApprovedRevisionID != nil && *detail.Page.ApprovedRevisionID == revision.ID
 	currentDraft := detail.Page.LatestDraftRevisionID != nil && *detail.Page.LatestDraftRevisionID == revision.ID
-	if !accepted && !currentDraft {
+	if !approved && !currentDraft {
 		s.handleError(w, store.ErrNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": revision})
 }
 
-func (s *Server) handleHermesProposeChanges(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation, turn *assistantTurn) {
+func (s *Server) handleHermesApplyDraftChanges(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation, turn *assistantTurn) {
 	var changeSet model.AIChangeSet
 	if !decodeJSON(w, request, &changeSet) {
 		return
@@ -151,7 +255,7 @@ func (s *Server) handleHermesProposeChanges(w http.ResponseWriter, request *http
 		writeError(w, http.StatusUnprocessableEntity, "invalid_change_set", "A draft change set must contain at least one operation and no clarification.")
 		return
 	}
-	proposal, err := s.repository.StageAssistantDraftProposal(request.Context(), conversation.OrganizationID, conversation.UserID, model.AssistantMutationContext{
+	revisions, err := s.repository.ApplyAIChangeSet(request.Context(), conversation.OrganizationID, conversation.UserID, model.AssistantMutationContext{
 		ConversationID:  conversation.ID,
 		TurnID:          turn.ID,
 		HermesProfile:   "viki-edit",
@@ -161,7 +265,18 @@ func (s *Server) handleHermesProposeChanges(w http.ResponseWriter, request *http
 		s.handleError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"result": map[string]any{"proposal": proposal}})
+	drafts := make([]model.AssistantDraftReceipt, 0, len(revisions))
+	for _, revision := range revisions {
+		if revision.ID == "" || revision.PageID == "" {
+			continue
+		}
+		drafts = append(drafts, model.AssistantDraftReceipt{
+			RevisionID: revision.ID,
+			PageID:     revision.PageID,
+			PageTitle:  revision.Title,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": map[string]any{"drafts": drafts}})
 }
 
 func assistantBindingMatches(conversation model.AssistantConversation, turn *assistantTurn, presentedSessionID string) bool {

@@ -14,7 +14,7 @@ func (r *Repository) Retrieve(ctx context.Context, organizationID, query string,
 	args := []any{organizationID, strings.TrimSpace(query), includeDrafts, limit}
 	rows, err := r.pool.Query(ctx, `
 		WITH candidates AS (
-			SELECT r.id, p.id AS page_id, r.title, r.body_md, r.aliases,
+			SELECT r.id, p.id AS page_id, r.title, r.body_md,
 				COALESCE(r.id = p.latest_draft_revision_id, false) AS is_draft,
 				(
 					ts_rank(r.search_document, plainto_tsquery('simple', $2)) * 2
@@ -23,11 +23,11 @@ func (r *Repository) Retrieve(ctx context.Context, organizationID, query string,
 				) AS score,
 				COALESCE((SELECT string_agg(upper(s.keyword) || ' ' || s.text, E'\n' ORDER BY s.position) FROM bdd_steps s WHERE s.revision_id = r.id), '') AS steps
 			FROM pages p
-			JOIN revisions r ON r.id = p.accepted_revision_id OR ($3 AND r.id = p.latest_draft_revision_id)
+			JOIN revisions r ON r.id = p.approved_revision_id OR ($3 AND r.id = p.latest_draft_revision_id)
 			WHERE p.organization_id = $1
 		)
 		SELECT id::text, page_id::text, title,
-			title || E'\n' || body_md || E'\nAliasy: ' || array_to_string(aliases, ', ') || E'\n' || steps,
+			title || E'\n' || body_md || E'\n' || steps,
 			is_draft, score
 		FROM candidates
 		WHERE $2 = '' OR score > 0.03 OR title ILIKE '%%' || $2 || '%%' OR body_md ILIKE '%%' || $2 || '%%'

@@ -23,15 +23,15 @@ const timestamp = '2026-07-31T10:00:00Z'
 const pages: Page[] = [
   {
     id: 'customer', kind: 'concept', conceptKind: 'noun', slug: 'zakaznik', title: 'Zákazník',
-    accepted: true, hasDraft: false, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp,
+    approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp,
   },
   {
     id: 'account-number', kind: 'concept', conceptKind: 'noun', slug: 'cislo-uctu', title: 'Číslo účtu',
-    accepted: true, hasDraft: true, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp,
+    approved: true, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp,
   },
   {
     id: 'contract', kind: 'concept', conceptKind: 'noun', slug: 'zmluva', title: 'Zmluva',
-    accepted: true, hasDraft: true, unresolvedRejections: 1, createdAt: timestamp, updatedAt: timestamp,
+    approved: true, hasDraft: true, unresolvedObjections: 1, createdAt: timestamp, updatedAt: timestamp,
   },
 ]
 
@@ -89,25 +89,26 @@ describe('LibraryPage', () => {
     expect(screen.queryByText('Zákazník')).not.toBeInTheDocument()
   })
 
-  it('uses one text-only color-coded status badge per concept row and no leading icon tile', () => {
+  it('shows approved and draft availability as independent text-only pills', () => {
+    mocks.pages = [
+      { id: 'approved-only', kind: 'concept', conceptKind: 'noun', slug: 'approved', title: 'Approved only', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'draft-only', kind: 'concept', conceptKind: 'noun', slug: 'draft', title: 'Draft only', approved: false, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'approved-with-draft', kind: 'concept', conceptKind: 'noun', slug: 'both', title: 'Approved with draft', approved: true, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+    ]
     render(<Router><LibraryPage kind="concept" /></Router>)
 
-    const acceptedRow = screen.getByRole('link', { name: /^Zákazník/ })
-    const draftRow = screen.getByRole('link', { name: /^Číslo účtu/ })
-    const rejectedRow = screen.getByRole('link', { name: /^Zmluva/ })
-    const acceptedBadge = acceptedRow.querySelector('.status-badge')
-    const draftBadge = draftRow.querySelector('.status-badge')
-    const rejectedBadge = rejectedRow.querySelector('.status-badge')
+    const approvedRow = screen.getByRole('link', { name: /^Approved only/ })
+    const draftRow = screen.getByRole('link', { name: /^Draft only/ })
+    const approvedWithDraftRow = screen.getByRole('link', { name: /^Approved with draft/ })
 
-    expect(acceptedRow.querySelector('.page-icon-box')).toBeNull()
+    expect(approvedRow.querySelector('.page-icon-box')).toBeNull()
     expect(draftRow.querySelector('.page-icon-box')).toBeNull()
-    expect(rejectedRow.querySelector('.page-icon-box')).toBeNull()
-    expect(acceptedBadge).toHaveClass('accepted')
-    expect(draftBadge).toHaveClass('draft')
-    expect(rejectedBadge).toHaveClass('rejected')
-    expect(rejectedBadge).toHaveTextContent('Odmietnuté')
-    for (const badge of [acceptedBadge, draftBadge, rejectedBadge]) {
-      expect(badge?.querySelector('svg, i')).toBeNull()
+    expect(approvedWithDraftRow.querySelector('.page-icon-box')).toBeNull()
+    expect([...approvedRow.querySelectorAll('.status-badge')].map((badge) => badge.textContent)).toEqual(['Schválené'])
+    expect([...draftRow.querySelectorAll('.status-badge')].map((badge) => badge.textContent)).toEqual(['Draft'])
+    expect([...approvedWithDraftRow.querySelectorAll('.status-badge')].map((badge) => badge.textContent)).toEqual(['Schválené', 'Draft'])
+    for (const badge of document.querySelectorAll('.status-badge')) {
+      expect(badge.querySelector('svg, i')).toBeNull()
     }
   })
 
@@ -125,14 +126,14 @@ describe('LibraryPage', () => {
 
   it('renders feature scenario counts, children, and every icon state', () => {
     const featurePages: Page[] = [
-      { id: 'feature-one', kind: 'feature', slug: 'one', title: 'First feature', accepted: true, hasDraft: false, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp },
-      { id: 'feature-many', kind: 'feature', slug: 'many', title: 'Second feature', accepted: false, hasDraft: true, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp },
-      { id: 'feature-rejected', kind: 'feature', slug: 'rejected', title: 'Rejected feature', accepted: true, hasDraft: true, unresolvedRejections: 1, createdAt: timestamp, updatedAt: timestamp },
-      { id: 'feature-new', kind: 'feature', slug: 'new', title: 'New feature', accepted: false, hasDraft: false, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp },
-      { id: 'scenario-one', kind: 'scenario', parentId: 'feature-one', slug: 'scenario-one', title: 'Only scenario', accepted: true, hasDraft: false, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp },
-      { id: 'scenario-two', kind: 'scenario', parentId: 'feature-many', slug: 'scenario-two', title: 'Draft scenario', accepted: false, hasDraft: true, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp },
-      { id: 'scenario-three', kind: 'scenario', parentId: 'feature-many', slug: 'scenario-three', title: 'Other scenario', accepted: true, hasDraft: false, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp },
-      { id: 'orphan', kind: 'scenario', slug: 'orphan', title: 'Orphan scenario', accepted: true, hasDraft: false, unresolvedRejections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'feature-one', kind: 'feature', slug: 'one', title: 'First feature', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'feature-many', kind: 'feature', slug: 'many', title: 'Second feature', approved: false, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'feature-rejected', kind: 'feature', slug: 'rejected', title: 'Rejected feature', approved: true, hasDraft: true, unresolvedObjections: 1, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'feature-new', kind: 'feature', slug: 'new', title: 'New feature', approved: false, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'scenario-one', kind: 'scenario', parentId: 'feature-one', slug: 'scenario-one', title: 'Only scenario', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'scenario-two', kind: 'scenario', parentId: 'feature-many', slug: 'scenario-two', title: 'Draft scenario', approved: false, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'scenario-three', kind: 'scenario', parentId: 'feature-many', slug: 'scenario-three', title: 'Other scenario', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'orphan', kind: 'scenario', slug: 'orphan', title: 'Orphan scenario', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
     ]
     mocks.pages = featurePages
     const { container } = render(<Router><LibraryPage kind="feature" /></Router>)
@@ -143,18 +144,117 @@ describe('LibraryPage', () => {
     expect(screen.getByRole('link', { name: /Draft scenario/ }).querySelector('.draft-dot')).toBeInTheDocument()
     expect(container.querySelector('.page-icon-box.approved')).toBeInTheDocument()
     expect(container.querySelector('.page-icon-box.draft')).toBeInTheDocument()
-    expect(container.querySelector('.page-icon-box.rejected')).toBeInTheDocument()
     expect(screen.queryByText('Orphan scenario')).not.toBeInTheDocument()
   })
 
-  it('filters accepted pages separately from drafts', async () => {
+  it('filters approved pages separately from drafts', async () => {
     const user = userEvent.setup()
     render(<Router><LibraryPage kind="concept" /></Router>)
     await user.click(screen.getByRole('button', { name: 'Filtrovať podľa stavu: Všetky' }))
-    await user.click(screen.getByRole('option', { name: 'Publikované' }))
+    await user.click(screen.getByRole('option', { name: 'Schválené' }))
 
     expect(screen.getByText('Zákazník')).toBeVisible()
     expect(screen.getByText('Číslo účtu')).toBeVisible()
     expect(screen.getByText('Zmluva')).toBeVisible()
+  })
+
+  it('renders the revision selected by each status filter when approved and draft titles differ', async () => {
+    const user = userEvent.setup()
+    mocks.pages = [{
+      id: 'renamed-contract', kind: 'concept', conceptKind: 'noun', slug: 'contract', title: 'Draft contract title',
+      approvedRevisionId: 'approved-revision', latestDraftRevisionId: 'draft-revision',
+      approvedRevisionTitle: 'Approved contract title', draftRevisionTitle: 'Draft contract title',
+      approved: true, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp,
+    }]
+    render(<Router><LibraryPage kind="concept" /></Router>)
+
+    const allRow = screen.getByRole('link', { name: /^Draft contract title/ })
+    expect([...allRow.querySelectorAll('.status-badge')].map((badge) => badge.textContent)).toEqual(['Schválené', 'Draft'])
+    expect(allRow).toHaveAttribute('href', '/page/renamed-contract?revision=draft-revision')
+
+    await user.click(screen.getByRole('button', { name: 'Filtrovať podľa stavu: Všetky' }))
+    await user.click(screen.getByRole('option', { name: 'Schválené' }))
+
+    const approvedRow = screen.getByRole('link', { name: /^Approved contract title/ })
+    expect([...approvedRow.querySelectorAll('.status-badge')].map((badge) => badge.textContent)).toEqual(['Schválené', 'Draft'])
+    expect(approvedRow).toHaveAttribute('href', '/page/renamed-contract')
+    expect(screen.queryByText('Draft contract title')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Filtrovať podľa stavu: Schválené' }))
+    await user.click(screen.getByRole('option', { name: 'Draft' }))
+
+    const draftRow = screen.getByRole('link', { name: /^Draft contract title/ })
+    expect([...draftRow.querySelectorAll('.status-badge')].map((badge) => badge.textContent)).toEqual(['Schválené', 'Draft'])
+    expect(draftRow).toHaveAttribute('href', '/page/renamed-contract?revision=draft-revision')
+    expect(screen.queryByText('Approved contract title')).not.toBeInTheDocument()
+  })
+
+  it('navigates a draft-labelled concept row to its draft revision', async () => {
+    const user = userEvent.setup()
+    mocks.pages = [{
+      id: 'renamed-contract', kind: 'concept', conceptKind: 'noun', slug: 'contract', title: 'Draft contract title',
+      approvedRevisionId: 'approved-revision', latestDraftRevisionId: 'draft-revision',
+      approvedRevisionTitle: 'Approved contract title', draftRevisionTitle: 'Draft contract title',
+      approved: true, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp,
+    }]
+    render(<Router><LibraryPage kind="concept" /></Router>)
+
+    const draftRow = screen.getByRole('link', { name: /^Draft contract title/ })
+    expect(draftRow).toHaveAttribute('href', '/page/renamed-contract?revision=draft-revision')
+
+    await user.click(draftRow)
+
+    expect(window.location.pathname + window.location.search).toBe('/page/renamed-contract?revision=draft-revision')
+  })
+
+  it('selects revision-specific titles for nested scenarios without hiding their feature context', async () => {
+    const user = userEvent.setup()
+    mocks.pages = [
+      { id: 'feature', kind: 'feature', slug: 'contracts', title: 'Contracts', approvedRevisionTitle: 'Contracts', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      {
+        id: 'scenario', kind: 'scenario', parentId: 'feature', slug: 'sign-contract', title: 'Draft scenario title',
+        approvedRevisionTitle: 'Approved scenario title', draftRevisionTitle: 'Draft scenario title',
+        approved: true, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp,
+      },
+    ]
+    const view = render(<Router><LibraryPage kind="feature" /></Router>)
+
+    expect(screen.getByText('Draft scenario title')).toBeVisible()
+    expect(view.container.querySelector('.feature-card-heading .status-badge')).toHaveTextContent('Schválené')
+
+    await user.click(screen.getByRole('button', { name: 'Filtrovať podľa stavu: Všetky' }))
+    await user.click(screen.getByRole('option', { name: 'Schválené' }))
+
+    expect(screen.getByText('Contracts')).toBeVisible()
+    expect(screen.getByText('Approved scenario title')).toBeVisible()
+    expect(screen.queryByText('Draft scenario title')).not.toBeInTheDocument()
+    expect(view.container.querySelector('.feature-children .draft-dot')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Filtrovať podľa stavu: Schválené' }))
+    await user.click(screen.getByRole('option', { name: 'Draft' }))
+
+    expect(screen.getByText('Contracts')).toBeVisible()
+    expect(screen.getByText('Draft scenario title')).toBeVisible()
+    expect(screen.queryByText('Approved scenario title')).not.toBeInTheDocument()
+    expect(view.container.querySelector('.feature-children .draft-dot')).toBeInTheDocument()
+  })
+
+  it('keeps scenarios independently filterable beneath their feature', async () => {
+    const user = userEvent.setup()
+    mocks.pages = [
+      { id: 'feature', kind: 'feature', slug: 'contracts', title: 'Contracts', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'draft-scenario', kind: 'scenario', parentId: 'feature', slug: 'draft-scenario', title: 'Draft scenario', approved: false, hasDraft: true, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+      { id: 'approved-scenario', kind: 'scenario', parentId: 'feature', slug: 'approved-scenario', title: 'Approved scenario', approved: true, hasDraft: false, unresolvedObjections: 0, createdAt: timestamp, updatedAt: timestamp },
+    ]
+    const view = render(<Router><LibraryPage kind="feature" /></Router>)
+
+    await user.click(screen.getByRole('button', { name: 'Filtrovať podľa stavu: Všetky' }))
+    await user.click(screen.getByRole('option', { name: 'Draft' }))
+
+    expect(screen.getByText('Contracts')).toBeVisible()
+    expect(screen.getByText('Draft scenario')).toBeVisible()
+    expect(screen.queryByText('Approved scenario')).not.toBeInTheDocument()
+    expect(screen.getByText('1 scenár')).toBeVisible()
+    expect(view.container.querySelector('.page-icon-box.approved')).toBeInTheDocument()
   })
 })

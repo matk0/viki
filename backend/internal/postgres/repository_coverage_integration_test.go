@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"viki/internal/governance"
 	"viki/internal/model"
 	"viki/internal/postgres"
 	"viki/internal/store"
@@ -69,7 +68,7 @@ func (f *repositoryFixture) close() {
 		_, _ = f.connection.Exec(f.ctx, `DELETE FROM audit_events WHERE organization_id = $1`, f.organizationID)
 		_, _ = f.connection.Exec(f.ctx, `DELETE FROM assistant_draft_proposals WHERE organization_id = $1`, f.organizationID)
 		_, _ = f.connection.Exec(f.ctx, `DELETE FROM assistant_conversations WHERE organization_id = $1`, f.organizationID)
-		_, _ = f.connection.Exec(f.ctx, `UPDATE pages SET accepted_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, f.organizationID)
+		_, _ = f.connection.Exec(f.ctx, `UPDATE pages SET approved_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, f.organizationID)
 		_, _ = f.connection.Exec(f.ctx, `DELETE FROM pages WHERE organization_id = $1`, f.organizationID)
 		_, _ = f.connection.Exec(f.ctx, `DELETE FROM users WHERE organization_id = $1`, f.organizationID)
 		_, _ = f.connection.Exec(f.ctx, `DELETE FROM organizations WHERE id = $1`, f.organizationID)
@@ -80,6 +79,19 @@ func (f *repositoryFixture) close() {
 		f.repository.Close()
 		f.repository = nil
 	}
+}
+
+func (f *repositoryFixture) createApprovedPage(t *testing.T, input model.CreatePageInput) model.PageDetail {
+	t.Helper()
+	detail, err := f.repository.CreatePage(f.ctx, f.organizationID, f.userID, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err = f.repository.ApproveRevision(f.ctx, f.organizationID, f.userID, detail.DraftRevision.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return detail
 }
 
 func TestAuthenticationRepositoryLifecycleAndInitialUser(t *testing.T) {
@@ -212,8 +224,8 @@ func TestAssistantConversationRepositoryCoversBindingsModesCursorsListingAndRece
 	noun := model.ConceptNoun
 	page, err := repository.CreatePage(ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
 		Kind: model.PageConcept, ConceptKind: &noun, Slug: "receipt-concept",
-		Content: model.RevisionContent{Title: "Receipt concept", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-	}, model.RevisionDraft)
+		Content: model.RevisionContent{Title: "Receipt concept", Steps: []model.Step{}, References: []model.PageReference{}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,31 +247,22 @@ func TestWikiRepositoryCoversSearchRetrievalRevisionsCommentsVotesAndChildren(t 
 	repository := fixture.repository
 	noun := model.ConceptNoun
 
-	concept, err := repository.CreatePage(ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+	concept := fixture.createApprovedPage(t, model.CreatePageInput{
 		Kind: model.PageConcept, ConceptKind: &noun, Slug: "adresa-pripojenia",
-		Content: model.RevisionContent{Title: "Adresa pripojenia", BodyMD: "Miesto dostupnosti internetu", Aliases: []string{"lokalita"}, Steps: []model.Step{}, References: []model.PageReference{}},
-	}, model.RevisionAccepted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	feature, err := repository.CreatePage(ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+		Content: model.RevisionContent{Title: "Adresa pripojenia", BodyMD: "Miesto dostupnosti internetu", Steps: []model.Step{}, References: []model.PageReference{}},
+	})
+	feature := fixture.createApprovedPage(t, model.CreatePageInput{
 		Kind: model.PageFeature, Slug: "rezervacia-sluzby",
-		Content: model.RevisionContent{Title: "Rezervácia služby", BodyMD: "Zákazník rezervuje internet", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{{TargetPageID: concept.Page.ID, Relation: "uses"}}},
-	}, model.RevisionAccepted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scenario, err := repository.CreatePage(ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+		Content: model.RevisionContent{Title: "Rezervácia služby", BodyMD: "Zákazník rezervuje internet", Steps: []model.Step{}, References: []model.PageReference{{TargetPageID: concept.Page.ID, Relation: "uses"}}},
+	})
+	scenario := fixture.createApprovedPage(t, model.CreatePageInput{
 		Kind: model.PageScenario, ParentID: &feature.Page.ID, Slug: "uspesna-rezervacia",
-		Content: model.RevisionContent{Title: "Úspešná rezervácia", BodyMD: "Rezervácia prejde", Aliases: []string{}, Steps: []model.Step{
+		Content: model.RevisionContent{Title: "Úspešná rezervácia", BodyMD: "Rezervácia prejde", Steps: []model.Step{
 			{Keyword: model.KeywordGiven, Text: "zákazník zadal adresu"},
 			{Keyword: model.KeywordWhen, Text: "odošle rezerváciu"},
 			{Keyword: model.KeywordThen, Text: "systém ju uloží"},
 		}, References: []model.PageReference{{TargetPageID: concept.Page.ID, Relation: "uses"}}},
-	}, model.RevisionAccepted)
-	if err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	pages, err := repository.ListPages(ctx, fixture.organizationID, nil)
 	if err != nil || len(pages) != 3 {
@@ -278,11 +281,11 @@ func TestWikiRepositoryCoversSearchRetrievalRevisionsCommentsVotesAndChildren(t 
 	if _, err := repository.PageDetail(ctx, uuid.NewString(), feature.Page.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("foreign page error=%v", err)
 	}
-	revision, err := repository.Revision(ctx, fixture.organizationID, scenario.AcceptedRevision.ID)
-	if err != nil || revision.ID != scenario.AcceptedRevision.ID || len(revision.Steps) != 3 || len(revision.References) != 1 {
+	revision, err := repository.Revision(ctx, fixture.organizationID, scenario.ApprovedRevision.ID)
+	if err != nil || revision.ID != scenario.ApprovedRevision.ID || len(revision.Steps) != 3 || len(revision.References) != 1 {
 		t.Fatalf("revision=%+v err=%v", revision, err)
 	}
-	if _, err := repository.Revision(ctx, uuid.NewString(), scenario.AcceptedRevision.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := repository.Revision(ctx, uuid.NewString(), scenario.ApprovedRevision.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("foreign revision error=%v", err)
 	}
 
@@ -300,11 +303,11 @@ func TestWikiRepositoryCoversSearchRetrievalRevisionsCommentsVotesAndChildren(t 
 		t.Fatalf("documents=%+v err=%v", documents, err)
 	}
 
-	draftContent := concept.AcceptedRevision
+	draftContent := concept.ApprovedRevision
 	draftContent.BodyMD = "Draft s verejnou IP adresou"
 	draft, err := repository.SaveRevision(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, model.SaveRevisionInput{
-		BaseRevisionID: concept.AcceptedRevision.ID,
-		Content:        model.RevisionContent{Title: draftContent.Title, BodyMD: draftContent.BodyMD, Aliases: draftContent.Aliases, Steps: draftContent.Steps, References: draftContent.References},
+		BaseRevisionID: concept.ApprovedRevision.ID,
+		Content:        model.RevisionContent{Title: draftContent.Title, BodyMD: draftContent.BodyMD, Steps: draftContent.Steps, References: draftContent.References},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -317,42 +320,41 @@ func TestWikiRepositoryCoversSearchRetrievalRevisionsCommentsVotesAndChildren(t 
 	if err != nil || len(documents) == 0 || !documents[0].Draft {
 		t.Fatalf("draft documents=%+v err=%v", documents, err)
 	}
-	if _, err := repository.PublishRevision(ctx, fixture.organizationID, fixture.userID, concept.AcceptedRevision.ID); !errors.Is(err, store.ErrConflict) {
-		t.Fatalf("publishing accepted revision error=%v", err)
+	if _, err := repository.ApproveRevision(ctx, fixture.organizationID, fixture.userID, concept.ApprovedRevision.ID); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("approving approved revision error=%v", err)
 	}
 
-	if _, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, nil, nil, nil, "   ", false); err == nil {
+	if _, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, nil, "   "); err == nil {
 		t.Fatal("empty comment was accepted")
 	}
-	if _, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, uuid.NewString(), nil, nil, nil, "Missing", false); !errors.Is(err, store.ErrNotFound) {
+	if _, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, uuid.NewString(), nil, "Missing"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing revision comment error=%v", err)
 	}
-	anchorKind, anchorID := "field", "bodyMd"
-	root, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, nil, &anchorKind, &anchorID, "Root", false)
-	if err != nil || root.AnchorKind == nil || root.Author.ID != fixture.userID {
+	root, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, nil, "Root")
+	if err != nil || root.Author.ID != fixture.userID {
 		t.Fatalf("root comment=%+v err=%v", root, err)
 	}
 	wrongParent := uuid.NewString()
-	if _, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, &wrongParent, nil, nil, "Reply", false); err == nil {
+	if _, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, &wrongParent, "Reply"); err == nil {
 		t.Fatal("reply to missing parent was accepted")
 	}
-	reply, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, &root.ID, nil, nil, "Reply", false)
+	reply, err := repository.AddComment(ctx, fixture.organizationID, fixture.userID, concept.Page.ID, draft.ID, &root.ID, "Reply")
 	if err != nil || reply.ParentCommentID == nil || *reply.ParentCommentID != root.ID {
 		t.Fatalf("reply=%+v err=%v", reply, err)
 	}
-	if _, err := repository.ResolveComment(ctx, fixture.organizationID, fixture.userID, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("missing resolve error=%v", err)
+	if _, err := repository.ResolveObjection(ctx, fixture.organizationID, fixture.userID, uuid.NewString()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("missing objection resolve error=%v", err)
 	}
-	resolved, err := repository.ResolveComment(ctx, fixture.organizationID, fixture.userID, root.ID)
+	objection, err := repository.AddObjection(ctx, fixture.organizationID, fixture.userID, draft.ID, "Needs detail")
+	if err != nil || objection.RevisionID != draft.ID || objection.Author.ID != fixture.userID {
+		t.Fatalf("objection=%+v err=%v", objection, err)
+	}
+	resolved, err := repository.ResolveObjection(ctx, fixture.organizationID, fixture.userID, objection.ID)
 	if err != nil || resolved.ResolvedBy == nil || resolved.ResolvedBy.ID != fixture.userID {
-		t.Fatalf("resolved=%+v err=%v", resolved, err)
-	}
-	vote, err := repository.SetVote(ctx, fixture.organizationID, fixture.userID, draft.ID, governance.VoteApprove, "")
-	if err != nil || vote.RevisionID != draft.ID || vote.CommentID != nil {
-		t.Fatalf("vote=%+v err=%v", vote, err)
+		t.Fatalf("resolved objection=%+v err=%v", resolved, err)
 	}
 	finalDetail, err := repository.PageDetail(ctx, fixture.organizationID, concept.Page.ID)
-	if err != nil || len(finalDetail.Comments) != 1 || len(finalDetail.Comments[0].Replies) != 1 || len(finalDetail.Votes) != 1 {
+	if err != nil || len(finalDetail.Comments) != 1 || len(finalDetail.Comments[0].Replies) != 1 {
 		t.Fatalf("final detail=%+v err=%v", finalDetail, err)
 	}
 }
@@ -389,8 +391,8 @@ func TestRepositoryMethodsReturnErrorsAfterDatabaseShutdown(t *testing.T) {
 
 	organizationID, userID, pageID, revisionID, conversationID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	noun := model.ConceptNoun
-	content := model.RevisionContent{Title: "Title", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}}
-	_, err = repository.CreatePage(ctx, organizationID, userID, model.CreatePageInput{Kind: model.PageConcept, ConceptKind: &noun, Slug: "valid-slug", Content: content}, model.RevisionDraft)
+	content := model.RevisionContent{Title: "Title", Steps: []model.Step{}, References: []model.PageReference{}}
+	_, err = repository.CreatePage(ctx, organizationID, userID, model.CreatePageInput{Kind: model.PageConcept, ConceptKind: &noun, Slug: "valid-slug", Content: content})
 	assertError("create page", err)
 	_, err = repository.SaveRevision(ctx, organizationID, userID, pageID, model.SaveRevisionInput{BaseRevisionID: revisionID, Content: content})
 	assertError("save revision", err)
@@ -404,14 +406,14 @@ func TestRepositoryMethodsReturnErrorsAfterDatabaseShutdown(t *testing.T) {
 	assertError("revision", err)
 	_, err = repository.Retrieve(ctx, organizationID, "title", false, 10)
 	assertError("retrieve", err)
-	_, err = repository.PublishRevision(ctx, organizationID, userID, revisionID)
-	assertError("publish revision", err)
-	_, err = repository.AddComment(ctx, organizationID, userID, pageID, revisionID, nil, nil, nil, "Comment", false)
+	_, err = repository.ApproveRevision(ctx, organizationID, userID, revisionID)
+	assertError("approve revision", err)
+	_, err = repository.AddComment(ctx, organizationID, userID, pageID, revisionID, nil, "Comment")
 	assertError("add comment", err)
-	_, err = repository.ResolveComment(ctx, organizationID, userID, uuid.NewString())
-	assertError("resolve comment", err)
-	_, err = repository.SetVote(ctx, organizationID, userID, revisionID, governance.VoteApprove, "")
-	assertError("set vote", err)
+	_, err = repository.AddObjection(ctx, organizationID, userID, revisionID, "Reason")
+	assertError("add objection", err)
+	_, err = repository.ResolveObjection(ctx, organizationID, userID, uuid.NewString())
+	assertError("resolve objection", err)
 	_, err = repository.ListAudit(ctx, organizationID, 20)
 	assertError("list audit", err)
 
@@ -434,18 +436,6 @@ func TestRepositoryMethodsReturnErrorsAfterDatabaseShutdown(t *testing.T) {
 	changeSet := model.AIChangeSet{Summary: "Create", Operations: []model.AIChangeOperation{{Operation: "create", ClientKey: "concept", Kind: model.PageConcept, ConceptKind: &noun, Slug: "concept", Content: content}}}
 	_, err = repository.ApplyAIChangeSet(ctx, organizationID, userID, mutation, changeSet)
 	assertError("apply change set", err)
-	_, err = repository.StageAssistantDraftProposal(ctx, organizationID, userID, mutation, changeSet)
-	assertError("stage proposal", err)
-	_, err = repository.ListAssistantDraftProposals(ctx, organizationID, userID)
-	assertError("list proposals", err)
-	_, err = repository.AssistantDraftProposal(ctx, organizationID, userID, mutation.TurnID)
-	assertError("proposal", err)
-	_, err = repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, mutation.TurnID, "concept", model.AssistantReviewApprove, "", false)
-	assertError("review proposal", err)
-	_, err = repository.PublishAssistantDraftProposal(ctx, organizationID, userID, mutation.TurnID)
-	assertError("publish proposal", err)
-	_, err = repository.DiscardAssistantDraftProposal(ctx, organizationID, userID, mutation.TurnID, "Reason")
-	assertError("discard proposal", err)
 }
 
 func TestOpenRejectsInvalidAndUnreachableDatabaseURLs(t *testing.T) {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"viki/internal/governance"
 	"viki/internal/model"
 	"viki/internal/store"
 )
@@ -20,12 +19,15 @@ func (r *Repository) ApplyAIChangeSet(ctx context.Context, organizationID, userI
 	if len(changeSet.Operations) == 0 {
 		return nil, fmt.Errorf("AI change set requires at least one operation")
 	}
+	if err := validateAssistantChangeSetShape(changeSet); err != nil {
+		return nil, err
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	createdIDs, err := r.applyAIChangeSetTx(ctx, tx, organizationID, userID, changeSet, model.RevisionDraft)
+	createdIDs, err := r.applyAIChangeSetTx(ctx, tx, organizationID, userID, changeSet)
 	if err != nil {
 		return nil, err
 	}
@@ -44,10 +46,7 @@ func (r *Repository) ApplyAIChangeSet(ctx context.Context, organizationID, userI
 	return r.revisionsByID(ctx, createdIDs)
 }
 
-func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organizationID, userID string, changeSet model.AIChangeSet, status model.RevisionStatus) ([]string, error) {
-	if status != model.RevisionDraft && status != model.RevisionAccepted {
-		return nil, fmt.Errorf("unsupported assistant revision status %q", status)
-	}
+func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organizationID, userID string, changeSet model.AIChangeSet) ([]string, error) {
 	createdIDs := make([]string, 0, len(changeSet.Operations))
 	createdPages := map[string]string{}
 	for _, operation := range changeSet.Operations {
@@ -92,11 +91,11 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 				}
 				return nil, err
 			}
-			revisionID, err := r.insertRevision(ctx, tx, organizationID, pageID, userID, 1, status, nil, operation.Content)
+			revisionID, err := r.insertRevision(ctx, tx, organizationID, pageID, userID, 1, nil, operation.Content)
 			if err != nil {
 				return nil, err
 			}
-			if err := updateAssistantPagePointers(ctx, tx, pageID, revisionID, status); err != nil {
+			if err := updateAssistantDraftPointer(ctx, tx, pageID, revisionID); err != nil {
 				return nil, err
 			}
 			createdIDs = append(createdIDs, revisionID)
@@ -109,11 +108,11 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 			}
 			var kind, slug string
 			var conceptKind *string
-			var parentID, acceptedID, draftID *string
+			var parentID, approvedID, draftID *string
 			err := tx.QueryRow(ctx, `
-				SELECT kind, concept_kind, parent_id::text, accepted_revision_id::text, latest_draft_revision_id::text, slug
+				SELECT kind, concept_kind, parent_id::text, approved_revision_id::text, latest_draft_revision_id::text, slug
 				FROM pages WHERE id = $1 AND organization_id = $2 FOR UPDATE
-			`, *operation.PageID, organizationID).Scan(&kind, &conceptKind, &parentID, &acceptedID, &draftID, &slug)
+			`, *operation.PageID, organizationID).Scan(&kind, &conceptKind, &parentID, &approvedID, &draftID, &slug)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, store.ErrNotFound
 			}
@@ -123,17 +122,12 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 			if string(operation.Kind) != kind || operation.Slug != slug || !conceptKindMatches(operation.ConceptKind, conceptKind) || !optionalStringMatches(operation.ParentID, parentID) {
 				return nil, fmt.Errorf("revise operation immutable page metadata does not match the existing page")
 			}
-			currentID := acceptedID
+			currentID := approvedID
 			if draftID != nil {
 				currentID = draftID
 			}
 			if currentID == nil || *currentID != *operation.BaseRevisionID {
 				return nil, store.ErrConflict
-			}
-			if status == model.RevisionAccepted {
-				if err := ensurePagePublishable(ctx, tx, *operation.PageID); err != nil {
-					return nil, err
-				}
 			}
 			var concept *model.ConceptKind
 			if conceptKind != nil {
@@ -152,16 +146,11 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 					return nil, err
 				}
 			}
-			if status == model.RevisionAccepted && acceptedID != nil {
-				if _, err := tx.Exec(ctx, `UPDATE revisions SET status = 'superseded' WHERE id = $1 AND status = 'accepted'`, *acceptedID); err != nil {
-					return nil, err
-				}
-			}
-			revisionID, err := r.insertRevision(ctx, tx, organizationID, *operation.PageID, userID, number, status, operation.BaseRevisionID, operation.Content)
+			revisionID, err := r.insertRevision(ctx, tx, organizationID, *operation.PageID, userID, number, operation.BaseRevisionID, operation.Content)
 			if err != nil {
 				return nil, err
 			}
-			if err := updateAssistantPagePointers(ctx, tx, *operation.PageID, revisionID, status); err != nil {
+			if err := updateAssistantDraftPointer(ctx, tx, *operation.PageID, revisionID); err != nil {
 				return nil, err
 			}
 			createdIDs = append(createdIDs, revisionID)
@@ -172,30 +161,75 @@ func (r *Repository) applyAIChangeSetTx(ctx context.Context, tx pgx.Tx, organiza
 	return createdIDs, nil
 }
 
-func updateAssistantPagePointers(ctx context.Context, tx pgx.Tx, pageID, revisionID string, status model.RevisionStatus) error {
-	if status == model.RevisionAccepted {
-		_, err := tx.Exec(ctx, `UPDATE pages SET accepted_revision_id = $2, latest_draft_revision_id = NULL, updated_at = now() WHERE id = $1`, pageID, revisionID)
-		return err
+func validateAssistantChangeSetShape(changeSet model.AIChangeSet) error {
+	createdKinds := make(map[string]model.PageKind, len(changeSet.Operations))
+	createdFeatures := make(map[string]int)
+	featuresWithScenarios := make(map[string]bool)
+	for index, operation := range changeSet.Operations {
+		switch operation.Operation {
+		case "create":
+			if operation.PageID != nil || operation.BaseRevisionID != nil {
+				return fmt.Errorf("assistant operation %d create cannot contain pageId or baseRevisionId", index+1)
+			}
+		case "revise":
+			if operation.PageID == nil || operation.BaseRevisionID == nil {
+				return fmt.Errorf("assistant operation %d revise requires pageId and baseRevisionId", index+1)
+			}
+		default:
+			return fmt.Errorf("assistant operation %d has unsupported operation %q", index+1, operation.Operation)
+		}
+
+		parentID := operation.ParentID
+		if operation.ParentClientKey != "" {
+			if createdKinds[operation.ParentClientKey] != model.PageFeature {
+				return fmt.Errorf("assistant operation %d references an unknown feature parent client key", index+1)
+			}
+			resolvedParent := operation.ParentClientKey
+			parentID = &resolvedParent
+		}
+		if err := validatePageInput(operation.Kind, operation.ConceptKind, parentID, operation.Content); err != nil {
+			return fmt.Errorf("assistant operation %d: %w", index+1, err)
+		}
+		if operation.Kind != model.PageConcept && len(operation.Content.References) == 0 {
+			return fmt.Errorf("assistant operation %d feature or scenario requires concept references", index+1)
+		}
+		for _, reference := range operation.Content.References {
+			hasPageID := strings.TrimSpace(reference.TargetPageID) != ""
+			hasClientKey := strings.TrimSpace(reference.TargetClientKey) != ""
+			if hasPageID == hasClientKey || strings.TrimSpace(reference.Relation) == "" || strings.TrimSpace(reference.TargetTitle) == "" {
+				return fmt.Errorf("assistant operation %d has an invalid page reference", index+1)
+			}
+			if hasClientKey && createdKinds[reference.TargetClientKey] != model.PageConcept {
+				return fmt.Errorf("assistant operation %d references an unknown concept client key", index+1)
+			}
+		}
+		if operation.ClientKey != "" {
+			if _, duplicate := createdKinds[operation.ClientKey]; duplicate {
+				return fmt.Errorf("assistant operation %d repeats client key %q", index+1, operation.ClientKey)
+			}
+			createdKinds[operation.ClientKey] = operation.Kind
+		}
+		if operation.Operation == "create" && operation.Kind == model.PageFeature {
+			if operation.ClientKey == "" {
+				return fmt.Errorf("assistant operation %d feature requires at least one scenario", index+1)
+			}
+			createdFeatures[operation.ClientKey] = index
+		}
+		if operation.Operation == "create" && operation.Kind == model.PageScenario && operation.ParentClientKey != "" {
+			featuresWithScenarios[operation.ParentClientKey] = true
+		}
 	}
-	_, err := tx.Exec(ctx, `UPDATE pages SET latest_draft_revision_id = $2, updated_at = now() WHERE id = $1`, pageID, revisionID)
-	return err
+	for clientKey, index := range createdFeatures {
+		if !featuresWithScenarios[clientKey] {
+			return fmt.Errorf("assistant operation %d feature requires at least one scenario", index+1)
+		}
+	}
+	return nil
 }
 
-func ensurePagePublishable(ctx context.Context, tx pgx.Tx, pageID string) error {
-	rows, err := tx.Query(ctx, `SELECT id::text FROM comments WHERE page_id = $1 AND blocking AND resolved_at IS NULL`, pageID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	threads := []governance.BlockingThread{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return err
-		}
-		threads = append(threads, governance.BlockingThread{ID: id})
-	}
-	return governance.CanPublish(threads)
+func updateAssistantDraftPointer(ctx context.Context, tx pgx.Tx, pageID, revisionID string) error {
+	_, err := tx.Exec(ctx, `UPDATE pages SET latest_draft_revision_id = $2, updated_at = now() WHERE id = $1`, pageID, revisionID)
+	return err
 }
 
 func (r *Repository) revisionsByID(ctx context.Context, ids []string) ([]model.Revision, error) {

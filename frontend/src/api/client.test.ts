@@ -93,6 +93,16 @@ describe('assistant API client', () => {
 
     expect(source.url).toBe('/api/v1/assistant/conversations/conversation-1/events')
     expect(source.options).toEqual({ withCredentials: true })
+    expect([...source.listeners.keys()]).toEqual([
+      'message_delta',
+      'activity',
+      'citation',
+      'draft_created',
+      'clarification',
+      'completed',
+      'stopped',
+      'error',
+    ])
     expect(onConnection).toHaveBeenCalledWith('connected')
     expect(onEvent).toHaveBeenCalledOnce()
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({
@@ -117,15 +127,18 @@ describe('assistant API client', () => {
     await api.pages('concept')
     await api.search('query')
     await api.search('query', 'feature', true)
+    await api.stepDefinitions()
+    await api.stepDefinitions('zmluva')
+    await api.stepDefinitions('', 'context')
+    await api.stepDefinitions('zmluva a podpis', 'action')
     await api.page('page 1')
     await api.revision('revision-1')
-    await api.createPage({ kind: 'concept', conceptKind: 'noun', slug: 'zmluva', content: { title: 'Zmluva', bodyMd: '', aliases: [], steps: [], references: [] } })
-    await api.saveRevision('page-1', 'revision-1', { title: 'Zmluva', bodyMd: 'Body', aliases: [], steps: [], references: [] })
-    await api.publish('revision-2')
-    await api.vote('revision-2', 'approve')
-    await api.vote('revision-2', 'reject', 'Reason')
-    await api.comment({ pageId: 'page-1', revisionId: 'revision-2', body: 'Comment', parentCommentId: 'comment-1', anchorKind: 'field', anchorId: 'bodyMd' })
-    await api.resolveComment('comment-1')
+    await api.createPage({ kind: 'concept', conceptKind: 'noun', slug: 'zmluva', content: { title: 'Zmluva', bodyMd: '', steps: [], references: [] } })
+    await api.saveRevision('page-1', 'revision-1', { title: 'Zmluva', bodyMd: 'Body', steps: [], references: [] })
+    await api.approve('revision-2')
+    await api.raiseObjection('revision-2', 'Needs revision')
+    await api.comment({ pageId: 'page-1', revisionId: 'revision-2', body: 'Comment', parentCommentId: 'comment-1' })
+    await api.resolveObjection('objection-1')
     await api.audit()
     await api.assistantStatus()
     await api.assistantConversations()
@@ -134,24 +147,22 @@ describe('assistant API client', () => {
     await api.sendAssistantMessage('conversation-1', 'Question', 'qa')
     await api.stopAssistantConversation('conversation-1')
     await api.respondToAssistantClarification('conversation-1', 'request-1', 'Answer')
-    await api.draftProposals()
-    await api.draftProposal('proposal-1')
-    await api.reviewDraftProposalOperation('proposal-1', 'concept / one', 'approve')
-    await api.reviewDraftProposalOperation('proposal-1', 'concept', 'reject', 'Reason', true)
-    await api.approveDraftProposal('proposal-1')
-    await api.discardDraftProposal('proposal-1', 'Reason')
-
     const calls = fetchMock.mock.calls as Array<[string, RequestInit]>
     expect(calls.map(([path]) => path)).toContain('/api/v1/pages')
     expect(calls.map(([path]) => path)).toContain('/api/v1/pages?kind=concept')
     expect(calls.map(([path]) => path)).toContain('/api/v1/pages?q=query&includeDrafts=true&kind=feature')
-    expect(calls.map(([path]) => path)).toContain('/api/v1/draft-proposals/proposal-1/operations/concept%20%2F%20one/review')
+    expect(calls.map(([path]) => path)).toContain('/api/v1/step-definitions')
+    expect(calls.map(([path]) => path)).toContain('/api/v1/step-definitions?q=zmluva')
+    expect(calls.map(([path]) => path)).toContain('/api/v1/step-definitions?role=context')
+    expect(calls.map(([path]) => path)).toContain('/api/v1/step-definitions?q=zmluva+a+podpis&role=action')
     expect(calls[0][1].headers).toEqual(expect.objectContaining({}))
     const loginHeaders = calls[0][1].headers as Headers
     expect(loginHeaders.get('Content-Type')).toBe('application/json')
     expect(loginHeaders.get('X-CSRF-Token')).toBe('csrf token')
     expect(calls.every(([, options]) => options.credentials === 'same-origin')).toBe(true)
-    expect(calls.at(-3)?.[1].body).toBe(JSON.stringify({ value: 'reject', reason: 'Reason', cascadeDescendants: true }))
+    const objection = calls.find(([path, options]) => path === '/api/v1/revisions/revision-2/objections' && options.body === JSON.stringify({ reason: 'Needs revision' }))
+    expect(objection).toBeDefined()
+    expect(calls.map(([path]) => path)).toContain('/api/v1/objections/objection-1/resolve')
   })
 
   it('handles no-content, empty-body, JSON errors, proxy errors, and English localization', async () => {
@@ -167,7 +178,7 @@ describe('assistant API client', () => {
     await expect(api.logout()).resolves.toBeUndefined()
     await expect(api.me()).resolves.toBeUndefined()
     document.documentElement.lang = 'en'
-    await expect(api.createPage({ kind: 'feature', slug: 'duplicate', content: { title: 'Duplicate', bodyMd: '', aliases: [], steps: [], references: [] } }))
+    await expect(api.createPage({ kind: 'feature', slug: 'duplicate', content: { title: 'Duplicate', bodyMd: '', steps: [], references: [] } }))
       .rejects.toMatchObject({ status: 409, code: 'duplicate_slug', message: 'A page with this address already exists.' })
     await expect(api.me()).rejects.toMatchObject({ status: 502, code: 'request_failed', message: 'The request could not be processed.' })
     await expect(api.me()).rejects.toMatchObject({ status: 400, code: 'unknown_code', message: 'Server fallback' })
@@ -183,6 +194,27 @@ describe('assistant API client', () => {
     expect(error.name).toBe('APIError')
     expect(error.status).toBe(409)
     expect(error.code).toBe('revision_conflict')
+  })
+
+  it('localizes the parent feature approval gate in both languages', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      error: { code: 'parent_feature_not_approved', message: 'server fallback' },
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    document.documentElement.lang = 'sk'
+    await expect(api.approve('scenario-revision')).rejects.toMatchObject({
+      status: 409,
+      code: 'parent_feature_not_approved',
+      message: 'Pred schválením scenára najprv schváľte nadradenú funkciu.',
+    })
+
+    document.documentElement.lang = 'en'
+    await expect(api.approve('scenario-revision')).rejects.toMatchObject({
+      status: 409,
+      code: 'parent_feature_not_approved',
+      message: 'Approve the parent feature before approving this scenario.',
+    })
   })
 
   it('reports both reconnect states and ignores malformed public events', () => {

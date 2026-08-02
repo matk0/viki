@@ -107,6 +107,24 @@ paths:
               schema: { $ref: "#/components/schemas/PageDetail" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /api/v1/step-definitions:
+    get:
+      tags: [wiki]
+      operationId: listStepDefinitions
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: role, in: query, schema: { $ref: "#/components/schemas/StepRole" } }
+      responses:
+        "200":
+          description: Approved reusable Gherkin step definitions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [definitions]
+                properties:
+                  definitions: { type: array, items: { $ref: "#/components/schemas/StepDefinition" } }
+        "422": { $ref: "#/components/responses/Error" }
   /api/v1/pages/{pageId}:
     parameters:
       - $ref: "#/components/parameters/PageId"
@@ -115,7 +133,7 @@ paths:
       operationId: getPage
       responses:
         "200":
-          description: Page with accepted and current draft states.
+          description: Page with approved and current draft states.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PageDetail" }
@@ -152,37 +170,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Revision" }
         "404": { $ref: "#/components/responses/Error" }
-  /api/v1/revisions/{revisionId}/publish:
+  /api/v1/revisions/{revisionId}/approve:
     parameters:
       - $ref: "#/components/parameters/RevisionId"
     post:
       tags: [review]
-      operationId: publishRevision
+      operationId: approveRevision
       responses:
         "200":
-          description: Page after atomic publication.
+          description: Page after atomic approval.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PageDetail" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
-  /api/v1/revisions/{revisionId}/vote:
+  /api/v1/revisions/{revisionId}/objections:
     parameters:
       - $ref: "#/components/parameters/RevisionId"
-    put:
+    post:
       tags: [review]
-      operationId: setVote
+      operationId: raiseObjection
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/VoteRequest" }
+            schema: { $ref: "#/components/schemas/ObjectionRequest" }
       responses:
-        "200":
-          description: Vote attached to the exact revision.
+        "201":
+          description: Blocking objection recorded for the exact revision.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Vote" }
+              schema: { $ref: "#/components/schemas/Objection" }
         "422": { $ref: "#/components/responses/Error" }
   /api/v1/comments:
     post:
@@ -200,21 +218,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Comment" }
         "422": { $ref: "#/components/responses/Error" }
-  /api/v1/comments/{commentId}/resolve:
+  /api/v1/objections/{objectionId}/resolve:
     parameters:
-      - name: commentId
+      - name: objectionId
         in: path
         required: true
         schema: { type: string, format: uuid }
     post:
       tags: [review]
-      operationId: resolveComment
+      operationId: resolveObjection
       responses:
         "200":
-          description: Resolved blocking thread.
+          description: Resolved objection.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Comment" }
+              schema: { $ref: "#/components/schemas/Objection" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/audit:
     get:
@@ -366,91 +384,6 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
-  /api/v1/draft-proposals:
-    get:
-      tags: [assistant]
-      operationId: listDraftProposals
-      responses:
-        "200":
-          description: All staged Edit proposals owned by the current user, with pending proposals first.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [proposals]
-                properties:
-                  proposals:
-                    type: array
-                    items: { $ref: "#/components/schemas/AssistantDraftProposal" }
-  /api/v1/draft-proposals/{proposalId}:
-    parameters:
-      - $ref: "#/components/parameters/ProposalId"
-    get:
-      tags: [assistant]
-      operationId: getDraftProposal
-      responses:
-        "200":
-          description: Staged Edit proposal owned by the current user.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
-        "404": { $ref: "#/components/responses/Error" }
-  /api/v1/draft-proposals/{proposalId}/approve:
-    parameters:
-      - $ref: "#/components/parameters/ProposalId"
-    post:
-      tags: [assistant]
-      operationId: approveDraftProposal
-      responses:
-        "200":
-          description: Proposal atomically published as accepted revisions.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-        "422": { $ref: "#/components/responses/Error" }
-  /api/v1/draft-proposals/{proposalId}/operations/{operationKey}/review:
-    parameters:
-      - $ref: "#/components/parameters/ProposalId"
-      - $ref: "#/components/parameters/OperationKey"
-    post:
-      tags: [assistant]
-      operationId: reviewDraftProposalOperation
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ReviewDraftProposalOperationInput" }
-      responses:
-        "200":
-          description: The operation review was saved. The approved subset is atomically published after every operation has been reviewed.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-        "422": { $ref: "#/components/responses/Error" }
-  /api/v1/draft-proposals/{proposalId}/discard:
-    parameters:
-      - $ref: "#/components/parameters/ProposalId"
-    post:
-      tags: [assistant]
-      operationId: discardDraftProposal
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/RejectDraftProposalInput" }
-      responses:
-        "200":
-          description: Proposal rejected with a recorded reason and without creating wiki records.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/AssistantDraftProposal" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-        "422": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     SessionCookie:
@@ -482,16 +415,6 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 200 }
-    ProposalId:
-      name: proposalId
-      in: path
-      required: true
-      schema: { type: string, format: uuid }
-    OperationKey:
-      name: operationKey
-      in: path
-      required: true
-      schema: { type: string, minLength: 1, maxLength: 200 }
   responses:
     Error:
       description: Request error.
@@ -519,10 +442,16 @@ components:
       enum: [noun, verb]
     RevisionStatus:
       type: string
-      enum: [draft, accepted, superseded]
-    VoteValue:
+      enum: [draft, approved, superseded]
+    DevelopmentStatus:
       type: string
-      enum: [approve, reject]
+      enum: [queued, running, developed, blocked]
+    ReviewReadiness:
+      type: string
+      enum: [approved, ready, blocked]
+    ReviewBlockerType:
+      type: string
+      enum: [objection, parent_feature]
     AssistantMode:
       type: string
       enum: [qa, edit]
@@ -531,10 +460,13 @@ components:
       enum: [idle, running, awaiting_clarification, stopped, error, unavailable]
     AssistantEventType:
       type: string
-      enum: [message_delta, activity, citation, draft_created, draft_proposed, draft_published, draft_discarded, clarification, completed, stopped, error]
+      enum: [message_delta, activity, citation, draft_created, clarification, completed, stopped, error]
     BDDKeyword:
       type: string
       enum: [given, when, then, and, but]
+    StepRole:
+      type: string
+      enum: [context, action, outcome]
     User:
       type: object
       required: [id, email, displayName, createdAt]
@@ -545,7 +477,7 @@ components:
         createdAt: { type: string, format: date-time }
     Page:
       type: object
-      required: [id, kind, slug, title, accepted, hasDraft, unresolvedRejections, createdAt, updatedAt]
+      required: [id, kind, slug, title, approved, hasDraft, unresolvedObjections, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         kind: { $ref: "#/components/schemas/PageKind" }
@@ -553,22 +485,36 @@ components:
         parentId: { type: string, format: uuid }
         slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
         title: { type: string }
-        acceptedRevisionId: { type: string, format: uuid }
+        approvedRevisionId: { type: string, format: uuid }
         latestDraftRevisionId: { type: string, format: uuid }
-        accepted: { type: boolean }
+        approvedRevisionTitle: { type: string }
+        draftRevisionTitle: { type: string }
+        approved: { type: boolean }
         hasDraft: { type: boolean }
-        unresolvedRejections: { type: integer, minimum: 0 }
+        unresolvedObjections: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     BDDStep:
       type: object
-      required: [keyword, text]
+      required: [keyword, text, arguments]
       properties:
         id: { type: string, format: uuid }
         stableId: { type: string, format: uuid }
         position: { type: integer, minimum: 0 }
         keyword: { $ref: "#/components/schemas/BDDKeyword" }
+        definitionId: { type: string, format: uuid }
+        expression: { type: string }
+        arguments: { type: array, items: { type: string } }
         text: { type: string, minLength: 1 }
+    StepDefinition:
+      type: object
+      required: [id, expression, role, approved, usageCount]
+      properties:
+        id: { type: string, format: uuid }
+        expression: { type: string }
+        role: { $ref: "#/components/schemas/StepRole" }
+        approved: { type: boolean }
+        usageCount: { type: integer, minimum: 0 }
     PageReference:
       type: object
       required: [relation]
@@ -579,11 +525,10 @@ components:
         relation: { type: string }
     RevisionContent:
       type: object
-      required: [title, bodyMd, aliases, steps, references]
+      required: [title, bodyMd, steps, references]
       properties:
         title: { type: string, minLength: 1 }
         bodyMd: { type: string }
-        aliases: { type: array, items: { type: string } }
         steps: { type: array, items: { $ref: "#/components/schemas/BDDStep" } }
         references: { type: array, items: { $ref: "#/components/schemas/PageReference" } }
     Revision:
@@ -599,7 +544,7 @@ components:
             baseRevisionId: { type: string, format: uuid }
             createdBy: { $ref: "#/components/schemas/User" }
             createdAt: { type: string, format: date-time }
-            acceptedAt: { type: string, format: date-time }
+            approvedAt: { type: string, format: date-time }
     RevisionSummary:
       type: object
       required: [id, number, status, title, createdBy, createdAt]
@@ -610,44 +555,72 @@ components:
         title: { type: string }
         createdBy: { $ref: "#/components/schemas/User" }
         createdAt: { type: string, format: date-time }
-        acceptedAt: { type: string, format: date-time }
+        approvedAt: { type: string, format: date-time }
     Comment:
       type: object
-      required: [id, pageId, revisionId, body, blocking, author, createdAt, replies]
+      required: [id, pageId, revisionId, body, author, createdAt, replies]
       properties:
         id: { type: string, format: uuid }
         pageId: { type: string, format: uuid }
         revisionId: { type: string, format: uuid }
         parentCommentId: { type: string, format: uuid }
-        anchorKind: { type: string }
-        anchorId: { type: string }
         body: { type: string }
-        blocking: { type: boolean }
+        author: { $ref: "#/components/schemas/User" }
+        createdAt: { type: string, format: date-time }
+        replies: { type: array, items: { $ref: "#/components/schemas/Comment" } }
+    Objection:
+      type: object
+      required: [id, pageId, revisionId, revisionNumber, body, author, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        pageId: { type: string, format: uuid }
+        revisionId: { type: string, format: uuid }
+        revisionNumber: { type: integer, minimum: 1 }
+        body: { type: string }
         author: { $ref: "#/components/schemas/User" }
         createdAt: { type: string, format: date-time }
         resolvedAt: { type: string, format: date-time }
         resolvedBy: { $ref: "#/components/schemas/User" }
-        replies: { type: array, items: { $ref: "#/components/schemas/Comment" } }
-    Vote:
+    ReviewBlocker:
       type: object
-      required: [revisionId, value, user, createdAt]
+      required: [id, type]
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: "#/components/schemas/ReviewBlockerType" }
+        sourceRevisionId: { type: string, format: uuid }
+        sourceRevisionNumber: { type: integer, minimum: 1 }
+        body: { type: string }
+        author: { $ref: "#/components/schemas/User" }
+        relatedPageId: { type: string, format: uuid }
+        relatedPageTitle: { type: string }
+    RevisionReviewState:
+      type: object
+      required: [revisionId, state, blockers]
       properties:
         revisionId: { type: string, format: uuid }
-        value: { $ref: "#/components/schemas/VoteValue" }
-        user: { $ref: "#/components/schemas/User" }
-        commentId: { type: string, format: uuid }
-        createdAt: { type: string, format: date-time }
+        state: { $ref: "#/components/schemas/ReviewReadiness" }
+        blockers: { type: array, items: { $ref: "#/components/schemas/ReviewBlocker" } }
     PageDetail:
       type: object
-      required: [page, revisions, comments, votes, children]
+      required: [page, revisions, comments, objections, children, reviewStates]
       properties:
         page: { $ref: "#/components/schemas/Page" }
-        acceptedRevision: { $ref: "#/components/schemas/Revision" }
+        approvedRevision: { $ref: "#/components/schemas/Revision" }
         draftRevision: { $ref: "#/components/schemas/Revision" }
         revisions: { type: array, items: { $ref: "#/components/schemas/RevisionSummary" } }
         comments: { type: array, items: { $ref: "#/components/schemas/Comment" } }
-        votes: { type: array, items: { $ref: "#/components/schemas/Vote" } }
+        objections: { type: array, items: { $ref: "#/components/schemas/Objection" } }
         children: { type: array, items: { $ref: "#/components/schemas/Page" } }
+        reviewStates: { type: array, items: { $ref: "#/components/schemas/RevisionReviewState" } }
+        development: { $ref: "#/components/schemas/ScenarioDevelopment" }
+    ScenarioDevelopment:
+      type: object
+      required: [revisionId, status, detail, updatedAt]
+      properties:
+        revisionId: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/DevelopmentStatus" }
+        detail: { type: string }
+        updatedAt: { type: string, format: date-time }
     Citation:
       type: object
       required: [revisionId, pageId, pageTitle, draft]
@@ -663,73 +636,6 @@ components:
         revisionId: { type: string, format: uuid }
         pageId: { type: string, format: uuid }
         pageTitle: { type: string }
-    AssistantDraftProposalStatus:
-      type: string
-      enum: [awaiting_approval, published, discarded]
-    AssistantOperationReviewValue:
-      type: string
-      enum: [approve, reject]
-    AssistantOperationReview:
-      type: object
-      additionalProperties: false
-      required: [operationKey, value, reviewedAt]
-      properties:
-        operationKey: { type: string }
-        value: { $ref: "#/components/schemas/AssistantOperationReviewValue" }
-        reason: { type: string }
-        reviewedAt: { type: string, format: date-time }
-    ReviewDraftProposalOperationInput:
-      type: object
-      additionalProperties: false
-      required: [value]
-      properties:
-        value: { $ref: "#/components/schemas/AssistantOperationReviewValue" }
-        reason:
-          type: string
-          maxLength: 2000
-        cascadeDescendants:
-          type: boolean
-          default: false
-          description: Apply the same decision atomically to child scenarios and newly proposed terms referenced by the selected feature tree.
-    RejectDraftProposalInput:
-      type: object
-      additionalProperties: false
-      required: [reason]
-      properties:
-        reason:
-          type: string
-          minLength: 1
-          maxLength: 2000
-    AssistantChangeOperation:
-      type: object
-      required: [operation, kind, slug, content]
-      properties:
-        operation: { type: string, enum: [create, revise] }
-        clientKey: { type: string }
-        pageId: { type: string, format: uuid }
-        baseRevisionId: { type: string, format: uuid }
-        kind: { $ref: "#/components/schemas/PageKind" }
-        conceptKind: { $ref: "#/components/schemas/ConceptKind" }
-        parentId: { type: string, format: uuid }
-        parentClientKey: { type: string }
-        slug: { type: string }
-        content: { $ref: "#/components/schemas/RevisionContent" }
-    AssistantDraftProposal:
-      type: object
-      required: [id, conversationId, turnId, summary, operations, operationReviews, status, publishedRevisions, createdAt, updatedAt]
-      properties:
-        id: { type: string, format: uuid }
-        conversationId: { type: string, format: uuid }
-        turnId: { type: string, format: uuid }
-        summary: { type: string }
-        operations: { type: array, items: { $ref: "#/components/schemas/AssistantChangeOperation" } }
-        operationReviews: { type: array, items: { $ref: "#/components/schemas/AssistantOperationReview" } }
-        status: { $ref: "#/components/schemas/AssistantDraftProposalStatus" }
-        rejectionReason: { type: string }
-        publishedRevisions: { type: array, items: { $ref: "#/components/schemas/Revision" } }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
-        publishedAt: { type: string, format: date-time }
     AssistantMessage:
       type: object
       required: [id, role, mode, content, citations, drafts, createdAt]
@@ -854,18 +760,26 @@ components:
         parentId: { type: string, format: uuid }
         slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
         content: { $ref: "#/components/schemas/RevisionContent" }
+        initialScenario:
+          description: Required when kind is feature and rejected for every other page kind.
+          $ref: "#/components/schemas/InitialScenarioRequest"
+    InitialScenarioRequest:
+      type: object
+      required: [slug, content]
+      properties:
+        slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        content: { $ref: "#/components/schemas/RevisionContent" }
     SaveRevisionRequest:
       type: object
       required: [baseRevisionId, content]
       properties:
         baseRevisionId: { type: string, format: uuid }
         content: { $ref: "#/components/schemas/RevisionContent" }
-    VoteRequest:
+    ObjectionRequest:
       type: object
-      required: [value]
+      required: [reason]
       properties:
-        value: { $ref: "#/components/schemas/VoteValue" }
-        reason: { type: string, description: Required when value is reject. }
+        reason: { type: string, minLength: 1 }
     CommentRequest:
       type: object
       required: [pageId, revisionId, body]
@@ -874,8 +788,6 @@ components:
         revisionId: { type: string, format: uuid }
         body: { type: string, minLength: 1 }
         parentCommentId: { type: string, format: uuid }
-        anchorKind: { type: string, enum: [field, step] }
-        anchorId: { type: string }
     APIError:
       type: object
       required: [error]

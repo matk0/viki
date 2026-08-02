@@ -100,14 +100,14 @@ func TestSanitizedHermesReadReceiptsSurviveHistoryReload(t *testing.T) {
 	history := []hermes.HistoryMessage{
 		{Role: "user", Text: prompt},
 		{Role: "tool", Name: "get_viki_revision", Result: json.RawMessage(`{"citations":[{"revisionId":"revision-1","pageId":"page-1","pageTitle":"Zmluva","draft":false}],"drafts":[]}`)},
-		{Role: "tool", Name: "propose_viki_changeset", Result: json.RawMessage(`{"citations":[],"drafts":[],"proposal":{"id":"proposal-2","turnId":"turn-receipts","summary":"Nový koncept","status":"awaiting_approval"}}`)},
+		{Role: "tool", Name: "apply_viki_draft_changeset", Result: json.RawMessage(`{"drafts":[{"revisionId":"revision-2","pageId":"page-2","pageTitle":"Nový koncept"}]}`)},
 	}
 	messages := visibleHistory(runtime, model.AssistantEdit, history, time.Now())
 	if len(messages) != 2 {
 		t.Fatalf("history messages = %d, want user plus synthesized assistant receipt: %+v", len(messages), messages)
 	}
 	receipt := messages[1]
-	if receipt.Role != "assistant" || len(receipt.Citations) != 1 || receipt.Citations[0].RevisionID != "revision-1" || len(receipt.Drafts) != 0 {
+	if receipt.Role != "assistant" || len(receipt.Citations) != 1 || receipt.Citations[0].RevisionID != "revision-1" || len(receipt.Drafts) != 1 || receipt.Drafts[0].RevisionID != "revision-2" {
 		t.Fatalf("sanitized receipts were not reconstructed: %+v", receipt)
 	}
 }
@@ -306,23 +306,28 @@ func TestAlreadyStreamedInterimMessageIsNotPublishedAgain(t *testing.T) {
 	}
 }
 
-func TestCompletedProposalToolEmitsLiveDraftProposal(t *testing.T) {
+func TestCompletedDraftToolEmitsEachSafeDraftReceiptOnce(t *testing.T) {
 	t.Parallel()
 
 	runtime := newAssistantRuntime(context.Background(), &runtimeTestRepository{}, hermes.NewFakeGateway(), "signing-key", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	turn := &assistantTurn{ID: "00000000-0000-4000-8000-000000000041", ConversationID: "conversation", Mode: model.AssistantEdit, RuntimeID: "runtime", StoredID: "stored", Citations: map[string]model.Citation{}}
 	runtime.activeByConversation[turn.ConversationID] = turn
 	runtime.activeByRuntime[assistantSessionKey(turn.Mode, turn.RuntimeID)] = turn
-	runtime.handleGatewayEvent(turn.Mode, hermes.Event{
+	event := hermes.Event{
 		Type:      "tool.complete",
 		SessionID: turn.RuntimeID,
-		Payload:   json.RawMessage(`{"name":"propose_viki_changeset","result":{"proposal":{"id":"00000000-0000-4000-8000-000000000041","conversationId":"00000000-0000-4000-8000-000000000042","turnId":"00000000-0000-4000-8000-000000000041","summary":"Nový koncept","operations":[],"status":"awaiting_approval","publishedRevisions":[],"createdAt":"2026-07-31T10:00:00Z","updatedAt":"2026-07-31T10:00:00Z"}}}`),
-	})
+		Payload:   json.RawMessage(`{"name":"apply_viki_draft_changeset","result":{"drafts":[{"revisionId":"revision-2","pageId":"page-2","pageTitle":"Dodatok"},{"revisionId":"revision-1","pageId":"page-1","pageTitle":"Zmluva"},{"revisionId":"revision-1","pageId":"page-1","pageTitle":"must not replace"},{"revisionId":"","pageId":"unsafe","pageTitle":"ignored"}]}}`),
+	}
+	runtime.handleGatewayEvent(turn.Mode, event)
+	runtime.handleGatewayEvent(turn.Mode, event)
 
 	replay, _, unsubscribe := runtime.stream(turn.ConversationID).subscribe(0, true)
 	defer unsubscribe()
-	if len(replay) != 2 || replay[0].Type != "activity" || replay[1].Type != "draft_proposed" {
-		t.Fatalf("proposal tool events = %+v, want activity then draft_proposed", replay)
+	if len(replay) != 4 || replay[0].Type != "activity" || replay[1].Type != "draft_created" || replay[2].Type != "draft_created" || replay[3].Type != "activity" {
+		t.Fatalf("draft tool events = %+v, want activity, two unique drafts, then duplicate activity only", replay)
+	}
+	if turn.Drafts == nil || len(turn.Drafts) != 2 || turn.Drafts["revision-1"].PageTitle != "Zmluva" || turn.Drafts["revision-2"].PageTitle != "Dodatok" {
+		t.Fatalf("turn draft receipts = %+v", turn.Drafts)
 	}
 }
 
@@ -472,11 +477,11 @@ func TestAssistantProjectionHelpersCoverBoundaryAndNestedShapes(t *testing.T) {
 	}
 
 	for name, want := range map[string]string{
-		"search_viki":            "Hľadám vo viki…",
-		"get_viki_page":          "Čítam podklady vo viki…",
-		"get_viki_revision":      "Čítam podklady vo viki…",
-		"propose_viki_changeset": "Pripravujem návrh na schválenie…",
-		"unexpected":             "Pracujem s viki…",
+		"search_viki":                "Hľadám vo viki…",
+		"get_viki_page":              "Čítam podklady vo viki…",
+		"get_viki_revision":          "Čítam podklady vo viki…",
+		"apply_viki_draft_changeset": "Vytváram drafty vo viki…",
+		"unexpected":                 "Pracujem s viki…",
 	} {
 		if got := toolActivityLabel(name); got != want {
 			t.Fatalf("tool label %q=%q want=%q", name, got, want)
@@ -511,14 +516,12 @@ func TestAssistantProjectionHelpersCoverBoundaryAndNestedShapes(t *testing.T) {
 		t.Fatalf("nested citations = %+v", citations)
 	}
 
-	if proposal := extractDraftProposal(json.RawMessage(`not-json`)); proposal != nil {
-		t.Fatalf("invalid proposal = %+v", proposal)
+	if drafts := extractDraftReceipts(json.RawMessage(`not-json`)); drafts != nil {
+		t.Fatalf("invalid drafts = %+v", drafts)
 	}
-	if proposal := extractDraftProposal(json.RawMessage(`{"proposal":{}}`)); proposal != nil {
-		t.Fatalf("empty proposal = %+v", proposal)
-	}
-	if proposal := extractDraftProposal(json.RawMessage(`{"proposal":{"id":"proposal-1"}}`)); proposal == nil || proposal.ID != "proposal-1" {
-		t.Fatalf("valid proposal = %+v", proposal)
+	drafts := extractDraftReceipts(json.RawMessage(`{"drafts":[{"revisionId":"revision-2","pageId":"page-2","pageTitle":"Dodatok"},{"revisionId":"revision-1","pageId":"page-1","pageTitle":"Zmluva"},{"revisionId":"revision-2","pageId":"page-2","pageTitle":"Duplicate"},{"revisionId":"","pageId":"page-x"},{"revisionId":"revision-x","pageId":""}]}`))
+	if len(drafts) != 2 || drafts[0].RevisionID != "revision-1" || drafts[1].RevisionID != "revision-2" || drafts[1].PageTitle != "Dodatok" {
+		t.Fatalf("safe drafts = %+v", drafts)
 	}
 }
 
@@ -880,11 +883,11 @@ func TestToolEventsCoverProgressCompletionCitationsAndInvalidPayloads(t *testing
 		{name: "started", eventType: "tool.start", payload: json.RawMessage(`{"name":"search_viki"}`), want: 1},
 		{name: "running", eventType: "tool.progress", payload: json.RawMessage(`{"name":"search_viki"}`), want: 1},
 		{name: "completed no result", eventType: "tool.complete", payload: json.RawMessage(`{"name":"search_viki"}`), want: 1},
-		{name: "completed empty proposal", eventType: "tool.complete", payload: json.RawMessage(`{"name":"propose_viki_changeset","result":{"proposal":{}}}`), want: 1},
+		{name: "completed empty drafts", eventType: "tool.complete", payload: json.RawMessage(`{"name":"apply_viki_draft_changeset","result":{"drafts":[]}}`), want: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mode := model.AssistantQA
-			if strings.Contains(string(test.payload), "propose_viki") {
+			if strings.Contains(string(test.payload), "apply_viki_draft") {
 				mode = model.AssistantEdit
 			}
 			runtime, turn := newHarness(mode)

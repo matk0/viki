@@ -7,8 +7,6 @@ import { LibraryPage } from './pages/LibraryPage'
 import { PagePage } from './pages/PagePage'
 import { AuditPage } from './pages/AuditPage'
 import { SearchPage } from './pages/SearchPage'
-import { DraftPage } from './pages/DraftPage'
-import { DraftsPage } from './pages/DraftsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { AssistantProvider } from './assistant'
 import { useI18n } from './i18n'
@@ -34,8 +32,6 @@ function CurrentRoute() {
   if (pathname === '/features') return <LibraryPage kind="feature" />
   if (pathname === '/audit') return <AuditPage />
   if (pathname === '/search') return <SearchPage />
-  if (pathname === '/drafts') return <DraftsPage />
-  if (pathname.startsWith('/drafts/')) return <DraftPage proposalId={decodeURIComponent(pathname.slice('/drafts/'.length))} />
   if (pathname.startsWith('/page/')) return <PagePage pageId={decodeURIComponent(pathname.slice('/page/'.length))} />
   return <NotFoundPage />
 }

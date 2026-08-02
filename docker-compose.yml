@@ -26,14 +26,16 @@ services:
     environment:
       DATABASE_URL: postgres://viki:viki@database:5432/viki?sslmode=disable
       INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-password}
-      HERMES_QA_WS_URL: ws://127.0.0.1:9119/api/ws
-      HERMES_EDIT_WS_URL: ws://127.0.0.1:9120/api/ws
+      HERMES_QA_WS_URL: ws://hermes:9219/api/ws
+      HERMES_EDIT_WS_URL: ws://hermes:9220/api/ws
       HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:-viki-local-qa-session}
       HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:-viki-local-edit-session}
       HERMES_QA_CONFIGURED: ${OPENAI_API_KEY:+true}
       HERMES_EDIT_CONFIGURED: ${OPENAI_API_KEY:+true}
       VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:-viki-local-tool-service}
-      VIKI_INTERNAL_ADDRESS: 127.0.0.1:8090
+      VIKI_INTERNAL_ADDRESS: 0.0.0.0:8090
+      DEVELOPMENT_TARGET_URL: http://mock-target:8091
+      DEVELOPMENT_TARGET_TOKEN: ${DEVELOPMENT_TARGET_TOKEN:-viki-local-development-target}
       FRONTEND_DIR: /app/public
       COOKIE_SECURE: "false"
     ports:
@@ -44,6 +46,18 @@ services:
       timeout: 3s
       retries: 20
 
+  mock-target:
+    image: nginx:1.29.5-alpine
+    volumes:
+      - ./mock-target/nginx.conf:/etc/nginx/nginx.conf:ro
+    expose:
+      - "8091"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8091/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   hermes:
     build:
       context: .
@@ -52,7 +66,6 @@ services:
     depends_on:
       viki:
         condition: service_started
-    network_mode: service:viki
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
@@ -60,15 +73,21 @@ services:
       HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:-viki-local-qa-session}
       HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:-viki-local-edit-session}
       VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:-viki-local-tool-service}
-      VIKI_INTERNAL_URL: http://127.0.0.1:8090
+      VIKI_INTERNAL_URL: http://viki:8090
     volumes:
       - viki-hermes:/opt/data
+    expose:
+      - "9219"
+      - "9220"
     healthcheck:
       test:
         - CMD-SHELL
         - >-
-          curl -fsS http://127.0.0.1:9119/api/status >/dev/null &&
-          curl -fsS http://127.0.0.1:9120/api/status >/dev/null
+          curl -fsS http://127.0.0.1:9219/api/status >/dev/null &&
+          curl -fsS http://127.0.0.1:9220/api/status >/dev/null &&
+          curl -fsS http://127.0.0.1:9121/api/status >/dev/null &&
+          HOME=/opt/data HERMES_HOME=/opt/data/profiles/viki-developer
+          hermes -p viki-developer cron status | grep -Fq "Gateway is running"
       interval: 5s
       timeout: 3s
       retries: 30
