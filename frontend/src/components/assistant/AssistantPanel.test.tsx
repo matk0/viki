@@ -829,6 +829,7 @@ describe('AssistantPanel', () => {
   it('labels draft citations and fallback Q&A activity', async () => {
     render(<Router><AssistantProvider><AssistantPanel /></AssistantProvider></Router>)
     await screen.findByText('Zmluva vyžaduje identifikačné údaje.')
+    await waitFor(() => expect(mocks.openAssistantEventStream).toHaveBeenCalled())
     act(() => emit({ id: 'draft-citation', type: 'citation', data: { turnId: 'draft-citation', mode: 'qa', citation: { ...conversation.messages[0].citations[0], revisionId: 'draft-revision', draft: true } } }))
     expect(await screen.findByText('Draft', { selector: '.citation-link em' })).toBeVisible()
     act(() => emit({ id: 'unknown-activity', type: 'activity', data: { turnId: 'turn', mode: 'qa', state: 'unknown', label: '' } }))
