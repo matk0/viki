@@ -212,7 +212,7 @@ func TestHermesToolBridgeRequiresAnExactActiveTurnGrant(t *testing.T) {
 		t.Fatalf("ephemeral runtime identity status = %d, want 403; body=%s", runtimeIdentityRecorder.Code, runtimeIdentityRecorder.Body.String())
 	}
 
-	mutation := internalToolRequest(t, "propose_viki_changeset", "service-secret", "qa", storedID, map[string]any{"summary": "no", "operations": []any{}})
+	mutation := internalToolRequest(t, "apply_viki_draft_changeset", "service-secret", "qa", storedID, map[string]any{"summary": "no", "operations": []any{}})
 	mutationRecorder := httptest.NewRecorder()
 	application.InternalHandler().ServeHTTP(mutationRecorder, mutation)
 	if mutationRecorder.Code != http.StatusForbidden {

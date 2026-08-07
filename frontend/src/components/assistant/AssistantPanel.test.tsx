@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantConnectionState, AssistantConversation, AssistantDraftProposal, AssistantDraftReceipt, AssistantStatus, AssistantStreamEvent } from '../../api/types'
+import type { AssistantConnectionState, AssistantConversation, AssistantDraftReceipt, AssistantStatus, AssistantStreamEvent } from '../../api/types'
 import { Router } from '../../router'
 import { AssistantProvider, useAssistant } from '../../assistant'
 import { I18nProvider, LanguageSwitcher } from '../../i18n'
@@ -62,7 +62,7 @@ const conversation: AssistantConversation = {
       mode: 'qa',
       content: 'Zmluva vyžaduje identifikačné údaje.',
       citations: [{
-        revisionId: 'revision-accepted-4',
+        revisionId: 'revision-approved-4',
         pageId: 'page-contract',
         pageTitle: 'Zmluva pre domácnosť',
         draft: false,
@@ -170,11 +170,11 @@ describe('AssistantPanel', () => {
     const messages = container.querySelectorAll('.chat-message')
     expect(within(messages[0] as HTMLElement).getByText('Otázky')).toBeInTheDocument()
     expect(within(messages[1] as HTMLElement).getByText('Úpravy')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Zmluva pre domácnosť.*revízia revision/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /Zmluva pre domácnosť.*verzia revision/i })).toHaveAttribute(
       'href',
-      '/page/page-contract?revision=revision-accepted-4',
+      '/page/page-contract?revision=revision-approved-4',
     )
-    expect(screen.getByRole('link', { name: /Draft vytvorený.*Nový koncept.*revízia revision/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /Draft vytvorený.*Nový koncept.*verzia revision/i })).toHaveAttribute(
       'href',
       '/page/page-new?revision=revision-draft-2',
     )
@@ -271,7 +271,7 @@ describe('AssistantPanel', () => {
     expect(mocks.api.stopAssistantConversation).toHaveBeenCalledWith('conversation-1')
   })
 
-  it('navigates an accepted Edit turn to its live Draft page immediately', async () => {
+  it('navigates an accepted Edit turn to its live progress page immediately', async () => {
     const user = userEvent.setup()
     render(
       <Router>
@@ -285,7 +285,8 @@ describe('AssistantPanel', () => {
     await user.type(screen.getByPlaceholderText('Opíšte, čo má viki pridať alebo zmeniť…'), 'Vytvor koncept zákazník')
     await user.click(screen.getByRole('button', { name: 'Odoslať' }))
 
-    await waitFor(() => expect(window.location.pathname).toBe('/drafts/turn-new'))
+    await waitFor(() => expect(mocks.api.sendAssistantMessage).toHaveBeenCalledWith('conversation-1', 'Vytvor koncept zákazník', 'edit'))
+    await waitFor(() => expect(window.location.pathname).toBe('/assistant/turns/turn-new'))
   })
 
   it('projects safe stream events into activity, citations, drafts, and structured clarification controls', async () => {
@@ -308,7 +309,7 @@ describe('AssistantPanel', () => {
       turnId: 'turn-live',
       mode: 'edit',
       citation: {
-        revisionId: 'revision-accepted-4',
+        revisionId: 'revision-approved-4',
         pageId: 'page-contract',
         pageTitle: 'Zmluva pre domácnosť',
         draft: false,
@@ -316,8 +317,8 @@ describe('AssistantPanel', () => {
     } }))
     act(() => emit({ id: '21', type: 'draft_created', data: { turnId: 'turn-live', mode: 'edit', draft } }))
     expect(screen.getByText('Pripravujem zmenu.')).toBeInTheDocument()
-    expect(screen.getAllByRole('link', { name: /Zmluva pre domácnosť.*revízia revision/i })).toHaveLength(2)
-    expect(screen.getAllByRole('link', { name: /Draft vytvorený.*Nový koncept.*revízia revision/i })).toHaveLength(2)
+    expect(screen.getAllByRole('link', { name: /Zmluva pre domácnosť.*verzia revision/i })).toHaveLength(2)
+    expect(screen.getAllByRole('link', { name: /Draft vytvorený.*Nový koncept.*verzia revision/i })).toHaveLength(2)
 
     act(() => emit({ id: '22', type: 'clarification', data: {
       turnId: 'turn-live',
@@ -335,6 +336,42 @@ describe('AssistantPanel', () => {
       'clarification-1',
       'Domácnosť',
     ))
+  })
+
+  it('retains only safe progress states, summary text, and draft receipts for the live Edit screen', async () => {
+    renderProbe()
+    await waitFor(() => expect(assistantProbe?.loading).toBe(false))
+
+    act(() => emit({ id: 'progress-1', type: 'activity', data: { turnId: 'turn-progress', mode: 'edit', state: 'submitted', label: 'must not be retained' } }))
+    act(() => emit({ id: 'progress-2', type: 'activity', data: { turnId: 'turn-progress', mode: 'edit', state: 'searching', label: 'also hidden' } }))
+    act(() => emit({ id: 'progress-3', type: 'activity', data: { turnId: 'turn-progress', mode: 'edit', state: 'searching', label: 'duplicate' } }))
+    act(() => emit({ id: 'progress-4', type: 'message_delta', data: { turnId: 'turn-progress', mode: 'edit', delta: 'Pripravujem zmeny.' } }))
+    act(() => emit({ id: 'progress-5', type: 'draft_created', data: { turnId: 'turn-progress', mode: 'edit', draft } }))
+    act(() => emit({ id: 'progress-6', type: 'draft_created', data: { turnId: 'turn-progress', mode: 'edit', draft } }))
+    act(() => emit({ id: 'progress-7', type: 'completed', data: { turnId: 'turn-progress', mode: 'edit' } }))
+
+    expect(assistantProbe?.turns['turn-progress']).toEqual({
+      id: 'turn-progress',
+      mode: 'edit',
+      status: 'completed',
+      activities: ['submitted', 'searching'],
+      summary: 'Pripravujem zmeny.',
+      drafts: [draft],
+    })
+  })
+
+  it('initializes progress from first receipt and error events while ignoring unbound errors', async () => {
+    renderProbe()
+    await waitFor(() => expect(assistantProbe?.loading).toBe(false))
+
+    act(() => emit({ id: 'first-draft', type: 'draft_created', data: { turnId: 'turn-first-draft', mode: 'edit', draft } }))
+    act(() => emit({ id: 'first-error', type: 'error', data: { turnId: 'turn-first-error', mode: 'edit', code: 'failed', message: 'Turn failed.' } }))
+    act(() => emit({ id: 'missing-mode', type: 'error', data: { turnId: 'turn-missing-mode', code: 'failed', message: 'Ignored binding.' } }))
+    act(() => emit({ id: 'missing-turn', type: 'error', data: { code: 'failed', message: 'General failure.' } }))
+
+    expect(assistantProbe?.turns['turn-first-draft']?.drafts).toEqual([draft])
+    expect(assistantProbe?.turns['turn-first-error']).toMatchObject({ status: 'error', error: 'Turn failed.' })
+    expect(assistantProbe?.turns['turn-missing-mode']).toBeUndefined()
   })
 
   it('always includes drafts without a scope control and rejects Hermes management commands', async () => {
@@ -396,7 +433,7 @@ describe('AssistantPanel', () => {
     expect(screen.queryByText(/WebSocket|JSON-RPC|Hermes session/i)).not.toBeInTheDocument()
   })
 
-  it('creates only one initial conversation under React Strict Mode', async () => {
+  it('creates only one initial conversation in Edit mode under React Strict Mode', async () => {
     mocks.api.assistantConversations.mockResolvedValue({ conversations: [] })
     mocks.api.createAssistantConversation.mockResolvedValue({ ...conversation, messages: [] })
     render(
@@ -411,6 +448,19 @@ describe('AssistantPanel', () => {
 
     expect(await screen.findByText('Čo potrebujete zachytiť?')).toBeInTheDocument()
     expect(mocks.api.createAssistantConversation).toHaveBeenCalledTimes(1)
+    expect(mocks.api.createAssistantConversation).toHaveBeenCalledWith('edit')
+  })
+
+  it('loads an idle existing conversation with Edit selected by default', async () => {
+    const qaConversation = { ...conversation, lastMode: 'qa' as const }
+    mocks.api.assistantConversations.mockResolvedValue({ conversations: [qaConversation] })
+    mocks.api.assistantConversation.mockResolvedValue(qaConversation)
+
+    render(<Router><AssistantProvider><AssistantPanel /></AssistantProvider></Router>)
+
+    await screen.findByText('Zmluva vyžaduje identifikačné údaje.')
+    expect(screen.getByRole('button', { name: 'Úpravy' })).toHaveClass('active')
+    expect(screen.getByPlaceholderText('Opíšte, čo má viki pridať alebo zmeniť…')).toBeEnabled()
   })
 
   it('creates a conversation from the panel action', async () => {
@@ -601,16 +651,11 @@ describe('AssistantPanel', () => {
     expect(assistantProbe?.conversation?.messages).toEqual([])
   })
 
-  it('projects all draft lifecycle and terminal stream events without duplicate evidence', async () => {
+  it('projects draft receipts and terminal stream events without duplicate evidence', async () => {
     renderProbe()
     await waitFor(() => expect(assistantProbe?.loading).toBe(false))
     await waitFor(() => expect(mocks.openAssistantEventStream).toHaveBeenCalled())
     const citation = conversation.messages[0].citations[0]
-    const proposal: AssistantDraftProposal = {
-      id: 'proposal-1', conversationId: conversation.id, turnId: 'turn-stream', summary: 'Summary', status: 'awaiting_approval',
-      operations: [], operationReviews: [], publishedRevisions: [], createdAt: '', updatedAt: '',
-    }
-
     act(() => emit({ id: 'delta-1', type: 'message_delta', data: { turnId: 'turn-stream', mode: 'edit', delta: 'One' } }))
     act(() => emit({ id: 'delta-2', type: 'message_delta', data: { turnId: 'turn-stream', mode: 'edit', delta: ' two' } }))
     act(() => emit({ id: 'citation-1', type: 'citation', data: { turnId: 'turn-stream', mode: 'edit', citation } }))
@@ -622,13 +667,7 @@ describe('AssistantPanel', () => {
     expect(streamed?.citations).toHaveLength(1)
     expect(streamed?.drafts).toHaveLength(1)
 
-    act(() => emit({ id: 'proposal', type: 'draft_proposed', data: { turnId: 'turn-stream', mode: 'edit', proposal } }))
-    expect(assistantProbe?.proposals['proposal-1']).toBe(proposal)
-    expect(assistantProbe?.proposals['turn-stream']).toBe(proposal)
-    expect(assistantProbe?.activity?.state).toBe('awaiting_approval')
-    act(() => emit({ id: 'published', type: 'draft_published', data: { turnId: 'turn-stream', mode: 'edit', proposal: { ...proposal, status: 'published' } } }))
-    act(() => emit({ id: 'discarded', type: 'draft_discarded', data: { turnId: 'turn-stream', mode: 'edit', proposal: { ...proposal, status: 'discarded' } } }))
-    expect(mocks.reloadPages).toHaveBeenCalledTimes(4)
+    expect(mocks.reloadPages).toHaveBeenCalledTimes(2)
 
     act(() => emit({ id: 'error', type: 'error', data: { turnId: 'turn-stream', mode: 'edit', code: 'failed', message: 'stream failed' } }))
     expect(assistantProbe?.conversation?.state).toBe('error')
@@ -636,7 +675,7 @@ describe('AssistantPanel', () => {
     act(() => emit({ id: 'stopped', type: 'stopped', data: { turnId: 'turn-stream', mode: 'edit' } }))
     await waitFor(() => expect(mocks.api.assistantConversation).toHaveBeenCalled())
     act(() => emit({ id: 'completed', type: 'completed', data: { turnId: 'turn-stream', mode: 'edit' } }))
-    await waitFor(() => expect(mocks.reloadPages).toHaveBeenCalledTimes(5))
+    await waitFor(() => expect(mocks.reloadPages).toHaveBeenCalledTimes(3))
   })
 
   it('fails closed when stream creation fails', async () => {
@@ -723,9 +762,9 @@ describe('AssistantPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Úpravy' }))
     act(() => emit({ id: 'drafting', type: 'activity', data: { turnId: 'turn', mode: 'edit', state: 'drafting', label: '' } }))
-    expect(screen.getByText('Pripravujem návrh…')).toBeVisible()
+    expect(screen.getByText('Vytváram drafty…')).toBeVisible()
     act(() => emit({ id: 'awaiting', type: 'activity', data: { turnId: 'turn', mode: 'edit', state: 'awaiting_approval', label: '' } }))
-    expect(screen.getByText('Návrh čaká na schválenie…')).toBeVisible()
+    expect(screen.getByText('Drafty čakajú na schválenie…')).toBeVisible()
     act(() => emit({ id: 'activity-complete', type: 'stopped', data: { turnId: 'turn', mode: 'edit' } }))
     await screen.findByRole('button', { name: 'Začať hlasový vstup' })
 
@@ -790,8 +829,9 @@ describe('AssistantPanel', () => {
   it('labels draft citations and fallback Q&A activity', async () => {
     render(<Router><AssistantProvider><AssistantPanel /></AssistantProvider></Router>)
     await screen.findByText('Zmluva vyžaduje identifikačné údaje.')
+    await waitFor(() => expect(mocks.openAssistantEventStream).toHaveBeenCalled())
     act(() => emit({ id: 'draft-citation', type: 'citation', data: { turnId: 'draft-citation', mode: 'qa', citation: { ...conversation.messages[0].citations[0], revisionId: 'draft-revision', draft: true } } }))
-    expect(screen.getByText('Draft', { selector: '.citation-link em' })).toBeVisible()
+    expect(await screen.findByText('Draft', { selector: '.citation-link em' })).toBeVisible()
     act(() => emit({ id: 'unknown-activity', type: 'activity', data: { turnId: 'turn', mode: 'qa', state: 'unknown', label: '' } }))
     expect(screen.getByText('Hľadám odpoveď…')).toBeVisible()
   })

@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { api } from './api/client'
-import type { Page } from './api/types'
+import type { Page, PageKind } from './api/types'
 
 interface WorkspaceValue {
   pages: Page[]
@@ -8,8 +8,9 @@ interface WorkspaceValue {
   reloadPages: () => Promise<void>
   assistantOpen: boolean
   setAssistantOpen: (open: boolean) => void
-  newPageKind: 'concept' | 'feature' | null
-  openNewPage: (kind: 'concept' | 'feature') => void
+  newPageKind: PageKind | null
+  newPageParentId?: string
+  openNewPage: (kind: PageKind, parentId?: string) => void
   closeNewPage: () => void
 }
 
@@ -19,9 +20,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [pages, setPages] = useState<Page[]>([])
   const [loadingPages, setLoadingPages] = useState(true)
   const [assistantOpen, setAssistantOpen] = useState(false)
-  const [newPageKind, setNewPageKind] = useState<'concept' | 'feature' | null>(null)
-  const openNewPage = useCallback((kind: 'concept' | 'feature') => setNewPageKind(kind), [])
-  const closeNewPage = useCallback(() => setNewPageKind(null), [])
+  const [newPageKind, setNewPageKind] = useState<PageKind | null>(null)
+  const [newPageParentId, setNewPageParentId] = useState<string>()
+  const openNewPage = useCallback((kind: PageKind, parentId?: string) => {
+    setNewPageKind(kind)
+    setNewPageParentId(parentId)
+  }, [])
+  const closeNewPage = useCallback(() => {
+    setNewPageKind(null)
+    setNewPageParentId(undefined)
+  }, [])
   const reloadPages = useCallback(async () => {
     try {
       const result = await api.pages()
@@ -36,8 +44,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({
     pages, loadingPages, reloadPages,
     assistantOpen, setAssistantOpen,
-    newPageKind, openNewPage, closeNewPage,
-  }), [pages, loadingPages, reloadPages, assistantOpen, newPageKind, openNewPage, closeNewPage])
+    newPageKind, newPageParentId, openNewPage, closeNewPage,
+  }), [pages, loadingPages, reloadPages, assistantOpen, newPageKind, newPageParentId, openNewPage, closeNewPage])
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
 }
 

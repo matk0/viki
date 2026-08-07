@@ -1,24 +1,23 @@
 import type {
   AssistantMode,
-  AssistantOperationReviewValue,
   AssistantCommandAccepted,
   AssistantConversation,
   AssistantConversationSummary,
   AssistantConnectionState,
-  AssistantDraftProposal,
   AssistantStatus,
   AssistantStreamEvent,
   AuditEvent,
   Comment,
+  Objection,
   Page,
   PageDetail,
   PageKind,
   Revision,
   RevisionContent,
   SearchResult,
+  StepDefinition,
+  StepRole,
   User,
-  Vote,
-  VoteValue,
 } from './types'
 
 export class APIError extends Error {
@@ -70,15 +69,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 function localizedErrorMessage(code: string, fallback: string): string {
+  if (code === 'parent_feature_not_approved') {
+    return document.documentElement.lang === 'en'
+      ? 'Approve the parent feature before approving this scenario.'
+      : 'Pred schválením scenára najprv schváľte nadradenú funkciu.'
+  }
   if (document.documentElement.lang !== 'en') return fallback
   const messages: Record<string, string> = {
     unauthorized: 'Please sign in again.', csrf_failed: 'The security token is invalid. Refresh the page.',
     invalid_json: 'The request has an invalid format.', not_found: 'The record was not found.',
     revision_conflict: 'Another user changed this page. Refresh the draft and apply your changes again.',
     duplicate_slug: 'A page with this address already exists.', invalid_page: 'The page hierarchy or reference is invalid.',
-    rejection_reason_required: 'You must provide a reason when rejecting.', invalid_vote: 'The vote is invalid.',
-    unresolved_rejection: 'An unresolved rejection blocks publication.',
-    rejected_proposal_dependency: 'An approved change depends on a rejected concept. Reject the dependent change or approve the concept.',
+    objection_reason_required: 'You must provide a reason when raising an objection.',
+    unresolved_objection: 'An unresolved objection blocks approval.',
     invalid_mode: 'Select Questions or Edit mode.', invalid_settings: 'Choose a setting to change.',
     assistant_busy: 'Wait for the current message to finish or stop it.', assistant_idle: 'No message is currently running.',
     invalid_message: 'The message must contain between 1 and 12,000 characters.',
@@ -107,19 +110,26 @@ export const api = {
     if (kind) params.set('kind', kind)
     return request<{ results: SearchResult[] }>(`/api/v1/pages?${params}`)
   },
+  stepDefinitions: (query = '', role?: StepRole) => {
+    const params = new URLSearchParams()
+    if (query) params.set('q', query)
+    if (role) params.set('role', role)
+    const suffix = params.size > 0 ? `?${params}` : ''
+    return request<{ definitions: StepDefinition[] }>(`/api/v1/step-definitions${suffix}`)
+  },
   page: (id: string) => request<PageDetail>(`/api/v1/pages/${id}`),
   revision: (id: string) => request<Revision>(`/api/v1/revisions/${id}`),
-  createPage: (input: { kind: PageKind; conceptKind?: 'noun' | 'verb'; parentId?: string; slug: string; content: RevisionContent }) =>
+  createPage: (input: { kind: PageKind; conceptKind?: 'noun' | 'verb'; parentId?: string; slug: string; content: RevisionContent; initialScenario?: { slug: string; content: RevisionContent } }) =>
     request<PageDetail>('/api/v1/pages', { method: 'POST', body: JSON.stringify(input) }),
   saveRevision: (pageId: string, baseRevisionId: string, content: RevisionContent) =>
     request<Revision>(`/api/v1/pages/${pageId}/revisions`, { method: 'POST', body: JSON.stringify({ baseRevisionId, content }) }),
-  publish: (revisionId: string) => request<PageDetail>(`/api/v1/revisions/${revisionId}/publish`, { method: 'POST' }),
-  vote: (revisionId: string, value: VoteValue, reason = '') => request<Vote>(`/api/v1/revisions/${revisionId}/vote`, {
-    method: 'PUT', body: JSON.stringify({ value, reason }),
+  approve: (revisionId: string) => request<PageDetail>(`/api/v1/revisions/${revisionId}/approve`, { method: 'POST' }),
+  raiseObjection: (revisionId: string, reason: string) => request<Objection>(`/api/v1/revisions/${revisionId}/objections`, {
+    method: 'POST', body: JSON.stringify({ reason }),
   }),
-  comment: (input: { pageId: string; revisionId: string; body: string; parentCommentId?: string; anchorKind?: string; anchorId?: string }) =>
+  comment: (input: { pageId: string; revisionId: string; body: string; parentCommentId?: string }) =>
     request<Comment>('/api/v1/comments', { method: 'POST', body: JSON.stringify(input) }),
-  resolveComment: (id: string) => request<Comment>(`/api/v1/comments/${id}/resolve`, { method: 'POST' }),
+  resolveObjection: (id: string) => request<Objection>(`/api/v1/objections/${id}/resolve`, { method: 'POST' }),
   audit: () => request<{ events: AuditEvent[] }>('/api/v1/audit?limit=80'),
   assistantStatus: () => request<AssistantStatus>('/api/v1/assistant/status'),
   assistantConversations: () => request<{ conversations: AssistantConversationSummary[] }>('/api/v1/assistant/conversations'),
@@ -136,16 +146,6 @@ export const api = {
   respondToAssistantClarification: (id: string, requestId: string, answer: string) => request<void>(`/api/v1/assistant/conversations/${id}/clarifications/${requestId}`, {
     method: 'POST', body: JSON.stringify({ answer }),
   }),
-  draftProposals: () => request<{ proposals: AssistantDraftProposal[] }>('/api/v1/draft-proposals'),
-  draftProposal: (id: string) => request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}`),
-  reviewDraftProposalOperation: (id: string, operationKey: string, value: AssistantOperationReviewValue, reason = '', cascadeDescendants = false) =>
-    request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}/operations/${encodeURIComponent(operationKey)}/review`, {
-      method: 'POST', body: JSON.stringify({ value, ...(reason ? { reason } : {}), ...(cascadeDescendants ? { cascadeDescendants: true } : {}) }),
-    }),
-  approveDraftProposal: (id: string) => request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}/approve`, { method: 'POST' }),
-  discardDraftProposal: (id: string, reason: string) => request<AssistantDraftProposal>(`/api/v1/draft-proposals/${id}/discard`, {
-    method: 'POST', body: JSON.stringify({ reason }),
-  }),
 }
 
 const assistantEventNames: AssistantStreamEvent['type'][] = [
@@ -153,9 +153,6 @@ const assistantEventNames: AssistantStreamEvent['type'][] = [
   'activity',
   'citation',
   'draft_created',
-  'draft_proposed',
-  'draft_published',
-  'draft_discarded',
   'clarification',
   'completed',
   'stopped',

@@ -22,8 +22,26 @@ def register(ctx):
         handler=tools.get_viki_revision,
     )
     ctx.register_tool(
-        name="propose_viki_changeset",
+        name="apply_viki_draft_changeset",
         toolset="viki_edit",
-        schema=schemas.PROPOSE_CHANGESET,
-        handler=tools.propose_viki_changeset,
+        schema=schemas.APPLY_DRAFT_CHANGESET,
+        handler=tools.apply_viki_draft_changeset,
+    )
+    ctx.register_tool(
+        name="claim_next_scenario",
+        toolset="viki_develop",
+        schema=schemas.CLAIM_NEXT_SCENARIO,
+        handler=tools.claim_next_scenario,
+    )
+    ctx.register_tool(
+        name="complete_scenario_development",
+        toolset="viki_develop",
+        schema=schemas.COMPLETE_SCENARIO_DEVELOPMENT,
+        handler=tools.complete_scenario_development,
+    )
+    ctx.register_tool(
+        name="block_scenario_development",
+        toolset="viki_develop",
+        schema=schemas.BLOCK_SCENARIO_DEVELOPMENT,
+        handler=tools.block_scenario_development,
     )

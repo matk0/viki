@@ -2,11 +2,8 @@ package postgres
 
 import (
 	"errors"
-	"strings"
 	"testing"
-	"time"
 
-	"viki/internal/governance"
 	"viki/internal/model"
 	"viki/internal/store"
 )
@@ -95,6 +92,61 @@ func TestValidateBDDStepsCoversOrderingContentAndKeywordRules(t *testing.T) {
 	if err := validateBDDSteps(valid); err != nil {
 		t.Fatalf("valid steps error=%v", err)
 	}
+	withDefinitions := []model.Step{
+		{Keyword: model.KeywordGiven, DefinitionID: "definition-1"},
+		{Keyword: model.KeywordWhen, Expression: "customer acts"},
+		{Keyword: model.KeywordThen, DefinitionID: "definition-3"},
+	}
+	if err := validateBDDSteps(withDefinitions); err != nil {
+		t.Fatalf("definition-backed steps error=%v", err)
+	}
+}
+
+func TestStepRolesAndParameterRendering(t *testing.T) {
+	t.Parallel()
+
+	steps := []model.Step{
+		{Keyword: model.KeywordGiven}, {Keyword: model.KeywordAnd},
+		{Keyword: model.KeywordWhen}, {Keyword: model.KeywordBut},
+		{Keyword: model.KeywordThen}, {Keyword: model.KeywordAnd},
+	}
+	wantRoles := []model.StepRole{model.StepContext, model.StepContext, model.StepAction, model.StepAction, model.StepOutcome, model.StepOutcome}
+	for index, want := range wantRoles {
+		if got := stepRole(steps, index); got != want {
+			t.Fatalf("role %d = %s, want %s", index, got, want)
+		}
+	}
+	if got := stepRole([]model.Step{{Keyword: model.KeywordAnd}}, 0); got != model.StepContext {
+		t.Fatalf("fallback role = %s", got)
+	}
+	role := model.StepAction
+	if stepRoleValue(nil) != "" || stepRoleValue(&role) != string(model.StepAction) {
+		t.Fatal("step role query value mismatch")
+	}
+
+	tests := []struct {
+		name       string
+		expression string
+		arguments  []string
+		want       string
+		wantErr    bool
+	}{
+		{name: "literal", expression: "  a contract exists  ", want: "a contract exists"},
+		{name: "supported parameters", expression: "a {word} has {int} contracts named {string}", arguments: []string{"customer", "2", "internet"}, want: `a customer has 2 contracts named "internet"`},
+		{name: "wrong count", expression: "a {word}", wantErr: true},
+		{name: "invalid integer", expression: "there are {int}", arguments: []string{"two"}, wantErr: true},
+		{name: "invalid word", expression: "a {word}", arguments: []string{"two words"}, wantErr: true},
+		{name: "empty word", expression: "a {word}", arguments: []string{""}, wantErr: true},
+		{name: "unsupported parameter", expression: "a {float}", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := renderStepExpression(test.expression, test.arguments)
+			if (err != nil) != test.wantErr || got != test.want {
+				t.Fatalf("rendered=%q error=%v want=%q wantErr=%v", got, err, test.want, test.wantErr)
+			}
+		})
+	}
 }
 
 func TestAssistantValidationAndOperationHelpersCoverEveryShape(t *testing.T) {
@@ -110,18 +162,7 @@ func TestAssistantValidationAndOperationHelpersCoverEveryShape(t *testing.T) {
 		t.Fatal("optional string matching failed")
 	}
 
-	pageID, blank := "page-1", " "
-	if assistantOperationKey(model.AIChangeOperation{ClientKey: " client "}, 0) != "client" ||
-		assistantOperationKey(model.AIChangeOperation{PageID: &pageID}, 1) != "page-1" ||
-		assistantOperationKey(model.AIChangeOperation{PageID: &blank}, 2) != "operation-3" ||
-		assistantOperationKey(model.AIChangeOperation{}, 3) != "operation-4" {
-		t.Fatal("assistant operation keys failed")
-	}
-	changeSet := model.AIChangeSet{Operations: []model.AIChangeOperation{{ClientKey: "one"}, {PageID: &pageID}, {}}}
-	if !assistantProposalHasOperation(changeSet, "one") || !assistantProposalHasOperation(changeSet, "page-1") || !assistantProposalHasOperation(changeSet, "operation-3") || assistantProposalHasOperation(changeSet, "missing") {
-		t.Fatal("assistant operation lookup failed")
-	}
-
+	pageID := "page-1"
 	baseID := "revision-1"
 	validConcept := model.AIChangeOperation{Operation: "create", ClientKey: "concept", Kind: model.PageConcept, ConceptKind: &noun, Content: model.RevisionContent{Title: "Concept"}}
 	validFeature := model.AIChangeOperation{Operation: "create", ClientKey: "feature", Kind: model.PageFeature, Content: model.RevisionContent{Title: "Feature", References: []model.PageReference{{TargetClientKey: "concept", TargetTitle: "Concept", Relation: "uses"}}}}
@@ -138,6 +179,7 @@ func TestAssistantValidationAndOperationHelpersCoverEveryShape(t *testing.T) {
 		{Operations: []model.AIChangeOperation{{Operation: "create", Kind: model.PageScenario, ParentClientKey: "missing", Content: model.RevisionContent{Title: "x", Steps: validScenarioSteps()}}}},
 		{Operations: []model.AIChangeOperation{{Operation: "create", Kind: model.PageConcept, ConceptKind: &noun, Content: model.RevisionContent{}}}},
 		{Operations: []model.AIChangeOperation{{Operation: "create", Kind: model.PageFeature, Content: model.RevisionContent{Title: "x"}}}},
+		{Operations: []model.AIChangeOperation{validConcept, {Operation: "create", Kind: model.PageFeature, Content: model.RevisionContent{Title: "x", References: []model.PageReference{{TargetClientKey: "concept", TargetTitle: "x", Relation: "uses"}}}}}},
 		{Operations: []model.AIChangeOperation{validConcept, {Operation: "create", Kind: model.PageFeature, Content: model.RevisionContent{Title: "x", References: []model.PageReference{{TargetPageID: "page", TargetClientKey: "concept", TargetTitle: "x", Relation: "uses"}}}}}},
 		{Operations: []model.AIChangeOperation{validConcept, {Operation: "create", Kind: model.PageFeature, Content: model.RevisionContent{Title: "x", References: []model.PageReference{{TargetPageID: "page", TargetTitle: "x"}}}}}},
 		{Operations: []model.AIChangeOperation{validConcept, {Operation: "create", Kind: model.PageFeature, Content: model.RevisionContent{Title: "x", References: []model.PageReference{{TargetClientKey: "missing", TargetTitle: "x", Relation: "uses"}}}}}},
@@ -151,51 +193,6 @@ func TestAssistantValidationAndOperationHelpersCoverEveryShape(t *testing.T) {
 	validRevision := model.AIChangeSet{Operations: []model.AIChangeOperation{{Operation: "revise", PageID: &pageID, BaseRevisionID: &baseID, Kind: model.PageConcept, ConceptKind: &noun, Content: model.RevisionContent{Title: "x"}}}}
 	if err := validateAssistantChangeSetShape(validRevision); err != nil {
 		t.Fatalf("valid revision shape error=%v", err)
-	}
-
-	tree := assistantProposalOperationTreeKeys(valid, "feature")
-	if strings.Join(tree, ",") != "concept,feature,scenario" {
-		t.Fatalf("operation tree=%v", tree)
-	}
-	reviews := upsertAssistantOperationReview(valid, []model.AssistantOperationReview{{OperationKey: "missing"}, {OperationKey: "concept", Value: model.AssistantReviewReject}}, model.AssistantOperationReview{OperationKey: "concept", Value: model.AssistantReviewApprove, ReviewedAt: time.Now()})
-	if len(reviews) != 1 || reviews[0].Value != model.AssistantReviewApprove {
-		t.Fatalf("upserted reviews=%+v", reviews)
-	}
-}
-
-func TestApprovedAssistantChangeSetCoversReviewsAndDependencies(t *testing.T) {
-	t.Parallel()
-
-	noun := model.ConceptNoun
-	concept := model.AIChangeOperation{Operation: "create", ClientKey: "concept", Kind: model.PageConcept, ConceptKind: &noun, Content: model.RevisionContent{Title: "Concept"}}
-	feature := model.AIChangeOperation{Operation: "create", ClientKey: "feature", Kind: model.PageFeature, Content: model.RevisionContent{Title: "Feature", References: []model.PageReference{{TargetClientKey: "concept", TargetTitle: "Concept", Relation: "uses"}}}}
-	scenario := model.AIChangeOperation{Operation: "create", ClientKey: "scenario", Kind: model.PageScenario, ParentClientKey: "feature", Content: model.RevisionContent{Title: "Scenario", Steps: validScenarioSteps(), References: []model.PageReference{{TargetClientKey: "concept", TargetTitle: "Concept", Relation: "uses"}}}}
-	changeSet := model.AIChangeSet{Summary: "test", Operations: []model.AIChangeOperation{concept, feature, scenario}}
-
-	if _, _, _, err := approvedAssistantChangeSet(changeSet, nil); err == nil {
-		t.Fatal("missing reviews were accepted")
-	}
-	if _, _, _, err := approvedAssistantChangeSet(changeSet, []model.AssistantOperationReview{
-		{OperationKey: "concept", Value: model.AssistantReviewReject},
-		{OperationKey: "feature", Value: model.AssistantReviewApprove},
-		{OperationKey: "scenario", Value: model.AssistantReviewReject},
-	}); !errors.Is(err, governance.ErrRejectedProposalDependency) {
-		t.Fatalf("reference dependency error=%v", err)
-	}
-	if _, _, _, err := approvedAssistantChangeSet(changeSet, []model.AssistantOperationReview{
-		{OperationKey: "concept", Value: model.AssistantReviewApprove},
-		{OperationKey: "feature", Value: model.AssistantReviewReject},
-		{OperationKey: "scenario", Value: model.AssistantReviewApprove},
-	}); !errors.Is(err, governance.ErrRejectedProposalDependency) {
-		t.Fatalf("parent dependency error=%v", err)
-	}
-	approved, approvedKeys, rejectedKeys, err := approvedAssistantChangeSet(changeSet, []model.AssistantOperationReview{
-		{OperationKey: "concept", Value: model.AssistantReviewApprove},
-		{OperationKey: "feature", Value: model.AssistantReviewApprove},
-		{OperationKey: "scenario", Value: model.AssistantReviewReject},
-	})
-	if err != nil || len(approved.Operations) != 2 || len(approvedKeys) != 2 || len(rejectedKeys) != 1 {
-		t.Fatalf("approved=%+v approvedKeys=%v rejectedKeys=%v err=%v", approved, approvedKeys, rejectedKeys, err)
 	}
 }
 

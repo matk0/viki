@@ -93,14 +93,12 @@ func (s *Server) handleError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "duplicate_slug", "Stránka s touto adresou už existuje.")
 	case errors.Is(err, store.ErrInvalidHierarchy), errors.Is(err, store.ErrInvalidReference):
 		writeError(w, http.StatusUnprocessableEntity, "invalid_page", "Hierarchia alebo referencia stránky nie je platná.")
-	case errors.Is(err, governance.ErrRejectionReasonRequired):
-		writeError(w, http.StatusUnprocessableEntity, "rejection_reason_required", "Pri zamietnutí musíte uviesť dôvod.")
-	case errors.Is(err, governance.ErrInvalidVote):
-		writeError(w, http.StatusUnprocessableEntity, "invalid_vote", "Hlas nie je platný.")
-	case errors.Is(err, governance.ErrUnresolvedRejection):
-		writeError(w, http.StatusConflict, "unresolved_rejection", "Publikovaniu bráni nevyriešené zamietnutie.")
-	case errors.Is(err, governance.ErrRejectedProposalDependency):
-		writeError(w, http.StatusConflict, "rejected_proposal_dependency", "Schválená zmena závisí od odmietnutého konceptu. Odmietnite aj závislú zmenu alebo koncept schváľte.")
+	case errors.Is(err, governance.ErrObjectionReasonRequired):
+		writeError(w, http.StatusUnprocessableEntity, "objection_reason_required", "Pri námietke musíte uviesť dôvod.")
+	case errors.Is(err, governance.ErrUnresolvedObjection):
+		writeError(w, http.StatusConflict, "unresolved_objection", "Schváleniu bráni nevyriešená námietka.")
+	case errors.Is(err, governance.ErrParentFeatureNotApproved):
+		writeError(w, http.StatusConflict, "parent_feature_not_approved", "Scenár možno schváliť až po schválení nadradenej funkcie.")
 	default:
 		s.logger.Error("request failed", "error", err)
 		writeError(w, http.StatusUnprocessableEntity, "request_failed", userSafeError(err))

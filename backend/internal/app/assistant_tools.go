@@ -13,17 +13,41 @@ import (
 func (s *Server) internalHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/hermes/tools/{tool}", s.handleHermesTool)
+	mux.HandleFunc("GET /internal/v1/development/pending", s.handleDevelopmentPending)
 	return s.recover(s.securityHeaders(mux))
 }
 
 func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	presentedProfile := strings.TrimSpace(request.Header.Get("X-Hermes-Profile"))
+	sessionID := strings.TrimSpace(request.Header.Get("X-Hermes-Session-ID"))
+	taskID := strings.TrimSpace(request.Header.Get("X-Hermes-Task-ID"))
+	if developerProfile(presentedProfile) {
+		if !s.options.DeveloperEnabled {
+			writeError(w, http.StatusForbidden, "developer_disabled", "Developer execution is disabled.")
+			return
+		}
+		if !s.authorizeDeveloperToolRequest(request) {
+			writeError(w, http.StatusUnauthorized, "invalid_developer_credential", "Developer credential is not valid.")
+			return
+		}
+		if sessionID == "" || taskID == "" {
+			writeError(w, http.StatusForbidden, "invalid_hermes_identity", "Hermes identity is not active.")
+			return
+		}
+		tool := strings.TrimSpace(request.PathValue("tool"))
+		if !developerToolAllowed(tool) {
+			writeError(w, http.StatusForbidden, "tool_not_allowed", "Tool is not allowed for this Hermes profile.")
+			return
+		}
+		s.handleDeveloperTool(w, request, tool, sessionID, taskID)
+		return
+	}
 	if !s.authorizeHermesToolRequest(request) {
 		writeError(w, http.StatusUnauthorized, "invalid_service_credential", "Service credential is not valid.")
 		return
 	}
-	mode := normalizeHermesProfile(request.Header.Get("X-Hermes-Profile"))
-	sessionID := strings.TrimSpace(request.Header.Get("X-Hermes-Session-ID"))
+	mode := normalizeHermesProfile(presentedProfile)
 	if (mode != model.AssistantQA && mode != model.AssistantEdit) || sessionID == "" {
 		writeError(w, http.StatusForbidden, "invalid_hermes_identity", "Hermes identity is not active.")
 		return
@@ -46,18 +70,147 @@ func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) 
 
 	switch tool {
 	case "search_viki":
-		s.handleHermesSearch(w, request, conversation)
+		s.handleHermesSearch(w, request, conversation, mode)
 	case "get_viki_page":
 		s.handleHermesGetPage(w, request, conversation)
 	case "get_viki_revision":
 		s.handleHermesGetRevision(w, request, conversation)
-	case "propose_viki_changeset":
-		s.handleHermesProposeChanges(w, request, conversation, turn)
+	case "apply_viki_draft_changeset":
+		s.handleHermesApplyDraftChanges(w, request, conversation, turn)
+	}
+}
+
+func (s *Server) handleDevelopmentPending(w http.ResponseWriter, request *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !s.options.DeveloperEnabled {
+		writeJSON(w, http.StatusOK, map[string]bool{"wakeAgent": false})
+		return
+	}
+	if !s.authorizeDeveloperToolRequest(request) {
+		writeError(w, http.StatusUnauthorized, "invalid_developer_credential", "Developer credential is not valid.")
+		return
+	}
+	queued, err := s.repository.HasQueuedScenarioDevelopment(request.Context())
+	if err != nil {
+		s.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"wakeAgent": queued})
+}
+
+func developerProfile(profile string) bool {
+	return profile == "developer" || profile == "viki-developer"
+}
+
+func developerToolAllowed(name string) bool {
+	switch name {
+	case "claim_next_scenario", "complete_scenario_development", "block_scenario_development":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) handleDeveloperTool(w http.ResponseWriter, request *http.Request, tool, sessionID, taskID string) {
+	switch tool {
+	case "claim_next_scenario":
+		var input struct{}
+		if !decodeJSON(w, request, &input) {
+			return
+		}
+		lease, err := newDevelopmentLease()
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		if !s.claims.reserve(sessionID, taskID, lease) {
+			writeError(w, http.StatusConflict, "active_development_claim", "Hermes session already has an active development claim.")
+			return
+		}
+		task, err := s.repository.ClaimScenarioDevelopment(request.Context())
+		if err != nil {
+			s.claims.release(sessionID, taskID, lease)
+			s.handleError(w, err)
+			return
+		}
+		if !s.claims.bind(sessionID, taskID, lease, task.RevisionID) {
+			s.claims.release(sessionID, taskID, lease)
+			writeError(w, http.StatusInternalServerError, "development_claim_failed", "Developer claim could not be bound.")
+			return
+		}
+		w.Header().Set("X-Viki-Development-Lease", lease)
+		writeJSON(w, http.StatusOK, map[string]any{"result": task})
+	case "complete_scenario_development":
+		var input struct {
+			Implementation string `json:"implementation"`
+		}
+		if !decodeJSON(w, request, &input) {
+			return
+		}
+		input.Implementation = strings.TrimSpace(input.Implementation)
+		if input.Implementation == "" {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_implementation", "implementation is required")
+			return
+		}
+		lease := strings.TrimSpace(request.Header.Get("X-Viki-Development-Lease"))
+		revisionID, claimed := s.claims.begin(sessionID, taskID, lease)
+		if !claimed {
+			writeError(w, http.StatusForbidden, "invalid_development_claim", "Developer task is not currently claimed by this Hermes turn.")
+			return
+		}
+		receipt, err := s.target.Apply(request.Context(), input.Implementation)
+		if err != nil {
+			s.claims.release(sessionID, taskID, lease)
+			s.handleError(w, err)
+			return
+		}
+		development, err := s.repository.CompleteScenarioDevelopment(request.Context(), revisionID, receipt)
+		if err != nil {
+			s.claims.release(sessionID, taskID, lease)
+			s.handleError(w, err)
+			return
+		}
+		s.claims.release(sessionID, taskID, lease)
+		writeJSON(w, http.StatusOK, map[string]any{"result": development})
+	case "block_scenario_development":
+		var input struct {
+			Reason string `json:"reason"`
+		}
+		if !decodeJSON(w, request, &input) {
+			return
+		}
+		input.Reason = strings.TrimSpace(input.Reason)
+		if input.Reason == "" {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_reason", "reason is required")
+			return
+		}
+		lease := strings.TrimSpace(request.Header.Get("X-Viki-Development-Lease"))
+		revisionID, claimed := s.claims.begin(sessionID, taskID, lease)
+		if !claimed {
+			writeError(w, http.StatusForbidden, "invalid_development_claim", "Developer task is not currently claimed by this Hermes turn.")
+			return
+		}
+		development, err := s.repository.BlockScenarioDevelopment(request.Context(), revisionID, input.Reason)
+		if err != nil {
+			s.claims.retry(sessionID, taskID, lease)
+			s.handleError(w, err)
+			return
+		}
+		s.claims.release(sessionID, taskID, lease)
+		writeJSON(w, http.StatusOK, map[string]any{"result": development})
 	}
 }
 
 func (s *Server) authorizeHermesToolRequest(request *http.Request) bool {
-	expected := strings.TrimSpace(s.options.HermesToolToken)
+	return authorizeServiceCredential(request, s.options.HermesToolToken)
+}
+
+func (s *Server) authorizeDeveloperToolRequest(request *http.Request) bool {
+	return authorizeServiceCredential(request, s.options.DeveloperToolToken)
+}
+
+func authorizeServiceCredential(request *http.Request, expected string) bool {
+	expected = strings.TrimSpace(expected)
 	if expected == "" {
 		return false
 	}
@@ -70,7 +223,7 @@ func (s *Server) authorizeHermesToolRequest(request *http.Request) bool {
 	return subtle.ConstantTimeCompare(expectedHash, providedHash) == 1
 }
 
-func (s *Server) handleHermesSearch(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation) {
+func (s *Server) handleHermesSearch(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation, mode model.AssistantMode) {
 	var input struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
@@ -91,7 +244,16 @@ func (s *Server) handleHermesSearch(w http.ResponseWriter, request *http.Request
 		s.handleError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"result": map[string]any{"documents": documents}})
+	result := map[string]any{"documents": documents}
+	if mode == model.AssistantEdit {
+		definitions, err := s.repository.ListStepDefinitions(request.Context(), conversation.OrganizationID, input.Query, nil)
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		result["stepDefinitions"] = definitions
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": result})
 }
 
 func (s *Server) handleHermesGetPage(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation) {
@@ -107,8 +269,8 @@ func (s *Server) handleHermesGetPage(w http.ResponseWriter, request *http.Reques
 		return
 	}
 	result := map[string]any{"page": detail.Page}
-	if detail.AcceptedRevision != nil {
-		result["acceptedRevision"] = detail.AcceptedRevision
+	if detail.ApprovedRevision != nil {
+		result["approvedRevision"] = detail.ApprovedRevision
 	}
 	if detail.DraftRevision != nil {
 		result["draftRevision"] = detail.DraftRevision
@@ -133,16 +295,16 @@ func (s *Server) handleHermesGetRevision(w http.ResponseWriter, request *http.Re
 		s.handleError(w, err)
 		return
 	}
-	accepted := detail.Page.AcceptedRevisionID != nil && *detail.Page.AcceptedRevisionID == revision.ID
+	approved := detail.Page.ApprovedRevisionID != nil && *detail.Page.ApprovedRevisionID == revision.ID
 	currentDraft := detail.Page.LatestDraftRevisionID != nil && *detail.Page.LatestDraftRevisionID == revision.ID
-	if !accepted && !currentDraft {
+	if !approved && !currentDraft {
 		s.handleError(w, store.ErrNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": revision})
 }
 
-func (s *Server) handleHermesProposeChanges(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation, turn *assistantTurn) {
+func (s *Server) handleHermesApplyDraftChanges(w http.ResponseWriter, request *http.Request, conversation model.AssistantConversation, turn *assistantTurn) {
 	var changeSet model.AIChangeSet
 	if !decodeJSON(w, request, &changeSet) {
 		return
@@ -151,7 +313,7 @@ func (s *Server) handleHermesProposeChanges(w http.ResponseWriter, request *http
 		writeError(w, http.StatusUnprocessableEntity, "invalid_change_set", "A draft change set must contain at least one operation and no clarification.")
 		return
 	}
-	proposal, err := s.repository.StageAssistantDraftProposal(request.Context(), conversation.OrganizationID, conversation.UserID, model.AssistantMutationContext{
+	revisions, err := s.repository.ApplyAIChangeSet(request.Context(), conversation.OrganizationID, conversation.UserID, model.AssistantMutationContext{
 		ConversationID:  conversation.ID,
 		TurnID:          turn.ID,
 		HermesProfile:   "viki-edit",
@@ -161,7 +323,18 @@ func (s *Server) handleHermesProposeChanges(w http.ResponseWriter, request *http
 		s.handleError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"result": map[string]any{"proposal": proposal}})
+	drafts := make([]model.AssistantDraftReceipt, 0, len(revisions))
+	for _, revision := range revisions {
+		if revision.ID == "" || revision.PageID == "" {
+			continue
+		}
+		drafts = append(drafts, model.AssistantDraftReceipt{
+			RevisionID: revision.ID,
+			PageID:     revision.PageID,
+			PageTitle:  revision.Title,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": map[string]any{"drafts": drafts}})
 }
 
 func assistantBindingMatches(conversation model.AssistantConversation, turn *assistantTurn, presentedSessionID string) bool {

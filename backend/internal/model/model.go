@@ -21,8 +21,17 @@ type RevisionStatus string
 
 const (
 	RevisionDraft      RevisionStatus = "draft"
-	RevisionAccepted   RevisionStatus = "accepted"
+	RevisionApproved   RevisionStatus = "approved"
 	RevisionSuperseded RevisionStatus = "superseded"
+)
+
+type DevelopmentStatus string
+
+const (
+	DevelopmentQueued    DevelopmentStatus = "queued"
+	DevelopmentRunning   DevelopmentStatus = "running"
+	DevelopmentDeveloped DevelopmentStatus = "developed"
+	DevelopmentBlocked   DevelopmentStatus = "blocked"
 )
 
 type BDDKeyword string
@@ -63,21 +72,42 @@ type Page struct {
 	ParentID              *string      `json:"parentId,omitempty"`
 	Slug                  string       `json:"slug"`
 	Title                 string       `json:"title"`
-	AcceptedRevisionID    *string      `json:"acceptedRevisionId,omitempty"`
+	ApprovedRevisionID    *string      `json:"approvedRevisionId,omitempty"`
 	LatestDraftRevisionID *string      `json:"latestDraftRevisionId,omitempty"`
-	Accepted              bool         `json:"accepted"`
+	ApprovedRevisionTitle *string      `json:"approvedRevisionTitle,omitempty"`
+	DraftRevisionTitle    *string      `json:"draftRevisionTitle,omitempty"`
+	Approved              bool         `json:"approved"`
 	HasDraft              bool         `json:"hasDraft"`
-	UnresolvedRejections  int          `json:"unresolvedRejections"`
+	UnresolvedObjections  int          `json:"unresolvedObjections"`
 	CreatedAt             time.Time    `json:"createdAt"`
 	UpdatedAt             time.Time    `json:"updatedAt"`
 }
 
 type Step struct {
-	ID       string     `json:"id"`
-	StableID string     `json:"stableId"`
-	Position int        `json:"position"`
-	Keyword  BDDKeyword `json:"keyword"`
-	Text     string     `json:"text"`
+	ID           string     `json:"id"`
+	StableID     string     `json:"stableId"`
+	Position     int        `json:"position"`
+	Keyword      BDDKeyword `json:"keyword"`
+	DefinitionID string     `json:"definitionId,omitempty"`
+	Expression   string     `json:"expression,omitempty"`
+	Arguments    []string   `json:"arguments"`
+	Text         string     `json:"text"`
+}
+
+type StepRole string
+
+const (
+	StepContext StepRole = "context"
+	StepAction  StepRole = "action"
+	StepOutcome StepRole = "outcome"
+)
+
+type StepDefinition struct {
+	ID         string   `json:"id"`
+	Expression string   `json:"expression"`
+	Role       StepRole `json:"role"`
+	Approved   bool     `json:"approved"`
+	UsageCount int      `json:"usageCount"`
 }
 
 type PageReference struct {
@@ -94,13 +124,12 @@ type Revision struct {
 	Status         RevisionStatus  `json:"status"`
 	Title          string          `json:"title"`
 	BodyMD         string          `json:"bodyMd"`
-	Aliases        []string        `json:"aliases"`
 	Steps          []Step          `json:"steps"`
 	References     []PageReference `json:"references"`
 	BaseRevisionID *string         `json:"baseRevisionId,omitempty"`
 	CreatedBy      User            `json:"createdBy"`
 	CreatedAt      time.Time       `json:"createdAt"`
-	AcceptedAt     *time.Time      `json:"acceptedAt,omitempty"`
+	ApprovedAt     *time.Time      `json:"approvedAt,omitempty"`
 }
 
 type RevisionSummary struct {
@@ -110,57 +139,113 @@ type RevisionSummary struct {
 	Title      string         `json:"title"`
 	CreatedBy  User           `json:"createdBy"`
 	CreatedAt  time.Time      `json:"createdAt"`
-	AcceptedAt *time.Time     `json:"acceptedAt,omitempty"`
+	ApprovedAt *time.Time     `json:"approvedAt,omitempty"`
 }
 
 type Comment struct {
-	ID              string     `json:"id"`
-	PageID          string     `json:"pageId"`
-	RevisionID      string     `json:"revisionId"`
-	ParentCommentID *string    `json:"parentCommentId,omitempty"`
-	AnchorKind      *string    `json:"anchorKind,omitempty"`
-	AnchorID        *string    `json:"anchorId,omitempty"`
-	Body            string     `json:"body"`
-	Blocking        bool       `json:"blocking"`
-	Author          User       `json:"author"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	ResolvedAt      *time.Time `json:"resolvedAt,omitempty"`
-	ResolvedBy      *User      `json:"resolvedBy,omitempty"`
-	Replies         []Comment  `json:"replies"`
+	ID              string    `json:"id"`
+	PageID          string    `json:"pageId"`
+	RevisionID      string    `json:"revisionId"`
+	ParentCommentID *string   `json:"parentCommentId,omitempty"`
+	Body            string    `json:"body"`
+	Author          User      `json:"author"`
+	CreatedAt       time.Time `json:"createdAt"`
+	Replies         []Comment `json:"replies"`
 }
 
-type Vote struct {
-	RevisionID string    `json:"revisionId"`
-	Value      string    `json:"value"`
-	User       User      `json:"user"`
-	CommentID  *string   `json:"commentId,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
+type Objection struct {
+	ID             string     `json:"id"`
+	PageID         string     `json:"pageId"`
+	RevisionID     string     `json:"revisionId"`
+	RevisionNumber int        `json:"revisionNumber"`
+	Body           string     `json:"body"`
+	Author         User       `json:"author"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ResolvedAt     *time.Time `json:"resolvedAt,omitempty"`
+	ResolvedBy     *User      `json:"resolvedBy,omitempty"`
+}
+
+type ReviewReadiness string
+
+const (
+	ReviewApproved ReviewReadiness = "approved"
+	ReviewReady    ReviewReadiness = "ready"
+	ReviewBlocked  ReviewReadiness = "blocked"
+)
+
+type ReviewBlockerType string
+
+const (
+	BlockerObjection     ReviewBlockerType = "objection"
+	BlockerParentFeature ReviewBlockerType = "parent_feature"
+)
+
+type ReviewBlocker struct {
+	ID                   string            `json:"id"`
+	Type                 ReviewBlockerType `json:"type"`
+	SourceRevisionID     *string           `json:"sourceRevisionId,omitempty"`
+	SourceRevisionNumber *int              `json:"sourceRevisionNumber,omitempty"`
+	Body                 *string           `json:"body,omitempty"`
+	Author               *User             `json:"author,omitempty"`
+	RelatedPageID        *string           `json:"relatedPageId,omitempty"`
+	RelatedPageTitle     *string           `json:"relatedPageTitle,omitempty"`
+}
+
+type RevisionReviewState struct {
+	RevisionID string          `json:"revisionId"`
+	State      ReviewReadiness `json:"state"`
+	Blockers   []ReviewBlocker `json:"blockers"`
 }
 
 type PageDetail struct {
-	Page             Page              `json:"page"`
-	AcceptedRevision *Revision         `json:"acceptedRevision,omitempty"`
-	DraftRevision    *Revision         `json:"draftRevision,omitempty"`
-	Revisions        []RevisionSummary `json:"revisions"`
-	Comments         []Comment         `json:"comments"`
-	Votes            []Vote            `json:"votes"`
-	Children         []Page            `json:"children"`
+	Page                Page                        `json:"page"`
+	ApprovedRevision    *Revision                   `json:"approvedRevision,omitempty"`
+	DraftRevision       *Revision                   `json:"draftRevision,omitempty"`
+	Revisions           []RevisionSummary           `json:"revisions"`
+	Comments            []Comment                   `json:"comments"`
+	Objections          []Objection                 `json:"objections"`
+	Children            []Page                      `json:"children"`
+	ReviewStates        []RevisionReviewState       `json:"reviewStates"`
+	Development         *ScenarioDevelopment        `json:"development,omitempty"`
+	DevelopmentProgress *FeatureDevelopmentProgress `json:"developmentProgress,omitempty"`
+}
+
+type FeatureDevelopmentProgress struct {
+	Developed int `json:"developed"`
+	Total     int `json:"total"`
+}
+
+type ScenarioDevelopment struct {
+	RevisionID string            `json:"revisionId"`
+	Status     DevelopmentStatus `json:"status"`
+	Detail     string            `json:"detail"`
+	UpdatedAt  time.Time         `json:"updatedAt"`
+}
+
+type DevelopmentTask struct {
+	ScenarioDevelopment
+	Scenario Revision `json:"scenario"`
 }
 
 type RevisionContent struct {
 	Title      string          `json:"title"`
 	BodyMD     string          `json:"bodyMd"`
-	Aliases    []string        `json:"aliases"`
 	Steps      []Step          `json:"steps"`
 	References []PageReference `json:"references"`
 }
 
 type CreatePageInput struct {
-	Kind        PageKind        `json:"kind"`
-	ConceptKind *ConceptKind    `json:"conceptKind,omitempty"`
-	ParentID    *string         `json:"parentId,omitempty"`
-	Slug        string          `json:"slug"`
-	Content     RevisionContent `json:"content"`
+	Kind            PageKind              `json:"kind"`
+	ConceptKind     *ConceptKind          `json:"conceptKind,omitempty"`
+	ParentID        *string               `json:"parentId,omitempty"`
+	Slug            string                `json:"slug"`
+	Content         RevisionContent       `json:"content"`
+	InitialScenario *InitialScenarioInput `json:"initialScenario,omitempty"`
+}
+
+type InitialScenarioInput struct {
+	Slug    string          `json:"slug"`
+	Content RevisionContent `json:"content"`
 }
 
 type SaveRevisionInput struct {
@@ -282,43 +367,6 @@ type AssistantMutationContext struct {
 	TurnID          string
 	HermesProfile   string
 	HermesSessionID string
-}
-
-type AssistantDraftProposalStatus string
-
-const (
-	AssistantProposalAwaitingApproval AssistantDraftProposalStatus = "awaiting_approval"
-	AssistantProposalPublished        AssistantDraftProposalStatus = "published"
-	AssistantProposalDiscarded        AssistantDraftProposalStatus = "discarded"
-)
-
-type AssistantOperationReviewValue string
-
-const (
-	AssistantReviewApprove AssistantOperationReviewValue = "approve"
-	AssistantReviewReject  AssistantOperationReviewValue = "reject"
-)
-
-type AssistantOperationReview struct {
-	OperationKey string                        `json:"operationKey"`
-	Value        AssistantOperationReviewValue `json:"value"`
-	Reason       string                        `json:"reason,omitempty"`
-	ReviewedAt   time.Time                     `json:"reviewedAt"`
-}
-
-type AssistantDraftProposal struct {
-	ID                 string                       `json:"id"`
-	ConversationID     string                       `json:"conversationId"`
-	TurnID             string                       `json:"turnId"`
-	Summary            string                       `json:"summary"`
-	Operations         []AIChangeOperation          `json:"operations"`
-	OperationReviews   []AssistantOperationReview   `json:"operationReviews"`
-	Status             AssistantDraftProposalStatus `json:"status"`
-	RejectionReason    string                       `json:"rejectionReason,omitempty"`
-	PublishedRevisions []Revision                   `json:"publishedRevisions"`
-	CreatedAt          time.Time                    `json:"createdAt"`
-	UpdatedAt          time.Time                    `json:"updatedAt"`
-	PublishedAt        *time.Time                   `json:"publishedAt,omitempty"`
 }
 
 type AuditEvent struct {

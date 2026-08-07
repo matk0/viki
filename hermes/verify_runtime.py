@@ -7,11 +7,15 @@ EXPECTED_TOOLS = {
     "search_viki": "viki_read",
     "get_viki_page": "viki_read",
     "get_viki_revision": "viki_read",
-    "propose_viki_changeset": "viki_edit",
+    "apply_viki_draft_changeset": "viki_edit",
+    "claim_next_scenario": "viki_develop",
+    "complete_scenario_development": "viki_develop",
+    "block_scenario_development": "viki_develop",
 }
 EXPECTED_TOOLSETS = {
     "qa": ["memory", "clarify", "viki_read"],
     "edit": ["memory", "clarify", "viki_read", "viki_edit"],
+    "developer": ["viki_develop"],
 }
 
 
@@ -50,7 +54,7 @@ def main() -> None:
         raise RuntimeError("explicit Viki posture unexpectedly enabled project tools")
 
     projection = server._history_to_messages
-    if not getattr(projection, "_viki_receipt_projection_v1", False):
+    if not getattr(projection, "_viki_receipt_projection_v2", False):
         raise RuntimeError("Viki receipt-only history projection is not installed")
     history = [
         {
@@ -115,7 +119,10 @@ def main() -> None:
     if actual_tools != EXPECTED_TOOLS:
         raise RuntimeError(f"unexpected Viki registry tools: {actual_tools!r}")
 
-    schema_json = json.dumps(registry.get_schema("search_viki"), sort_keys=True).lower()
+    contract_tool = "claim_next_scenario" if profile == "developer" else "search_viki"
+    contract_arguments = {} if profile == "developer" else {"query": "zmluva", "limit": 1}
+    contract_result = {"revisionId": "revision-contract", "status": "running"} if profile == "developer" else {"documents": []}
+    schema_json = json.dumps(registry.get_schema(contract_tool), sort_keys=True).lower()
     if any(field in schema_json for field in ("sessionid", "profile", "userid", "organizationid")):
         raise RuntimeError("trusted identity leaked into the Viki model schema")
 
@@ -125,6 +132,12 @@ def main() -> None:
     captured = {}
 
     class ContractResponse:
+        headers = (
+            {"X-Viki-Development-Lease": "viki-contract-lease"}
+            if profile == "developer"
+            else {}
+        )
+
         def __enter__(self):
             return self
 
@@ -132,7 +145,7 @@ def main() -> None:
             return False
 
         def read(self, _limit):
-            return b'{"result":{"documents":[]}}'
+            return json.dumps({"result": contract_result}).encode()
 
     def contract_urlopen(request, timeout):
         captured["request"] = request
@@ -154,14 +167,14 @@ def main() -> None:
 
         result = invoke_tool(
             ContractAgent(),
-            "search_viki",
-            {"query": "zmluva", "limit": 1},
+            contract_tool,
+            contract_arguments,
             "viki-contract-task",
         )
     finally:
         handler_globals["urlopen"] = original_urlopen
 
-    if json.loads(result) != {"documents": []}:
+    if json.loads(result) != contract_result:
         raise RuntimeError(f"unexpected pinned Viki dispatch result: {result!r}")
     request = captured.get("request")
     if request is None:
@@ -170,19 +183,20 @@ def main() -> None:
         raise RuntimeError("pinned Hermes did not inject the durable session ID")
     if request.get_header("X-hermes-profile") != profile:
         raise RuntimeError("Viki handler derived the wrong runtime profile")
-    if json.loads(request.data) != {"query": "zmluva", "limit": 1}:
+    if request.get_header("X-hermes-task-id") != "viki-contract-task":
+        raise RuntimeError("pinned Hermes did not inject the tool task ID")
+    credential_variable = "VIKI_DEVELOPER_TOOL_TOKEN" if profile == "developer" else "VIKI_HERMES_TOOL_TOKEN"
+    if request.get_header("Authorization") != f"Bearer {os.environ.get(credential_variable, '')}":
+        raise RuntimeError("pinned Hermes used the wrong Viki credential")
+    if json.loads(request.data) != contract_arguments:
         raise RuntimeError("trusted runtime identity leaked into model tool arguments")
 
     exposed = set(resolve_multiple_toolsets(enabled))
-    expected_viki = {
-        name
-        for name, toolset in EXPECTED_TOOLS.items()
-        if toolset == "viki_read" or profile == "edit"
-    }
+    expected_viki = {name for name, toolset in EXPECTED_TOOLS.items() if toolset in enabled}
     exposed_viki = set(EXPECTED_TOOLS) & exposed
     if exposed_viki != expected_viki:
         raise RuntimeError(f"unexpected exposed Viki tools: {sorted(exposed_viki)!r}")
-    if not {"memory", "clarify"}.issubset(exposed):
+    if profile != "developer" and not {"memory", "clarify"}.issubset(exposed):
         raise RuntimeError("memory or clarify is absent from the effective tool surface")
 
 

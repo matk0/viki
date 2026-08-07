@@ -26,7 +26,7 @@ it('runs initial URL searches and renders draft results without a preview', asyn
   mocks.params = new URLSearchParams('q=zmluva&kind=concept&includeDrafts=true')
   mocks.search.mockResolvedValue({ results: [{
     revisionId: 'revision-1', draft: true, excerpt: '', score: 1,
-    page: { id: 'page-1', kind: 'concept', conceptKind: 'noun', slug: 'zmluva', title: 'Zmluva', accepted: false, hasDraft: true, unresolvedRejections: 0, createdAt: '', updatedAt: '' },
+    page: { id: 'page-1', kind: 'concept', conceptKind: 'noun', slug: 'zmluva', title: 'Zmluva', approved: false, hasDraft: true, unresolvedObjections: 0, createdAt: '', updatedAt: '' },
   }] })
   render(<SearchPage />)
   expect(await screen.findByText('Zmluva')).toBeInTheDocument()

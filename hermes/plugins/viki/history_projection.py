@@ -7,14 +7,14 @@ VIKI_TOOL_NAMES = {
     "search_viki",
     "get_viki_page",
     "get_viki_revision",
-    "propose_viki_changeset",
+    "apply_viki_draft_changeset",
 }
-HISTORY_PROJECTION_MARKER = "_viki_receipt_projection_v1"
+HISTORY_PROJECTION_MARKER = "_viki_receipt_projection_v2"
 _SAFE_CONTEXT = {
     "search_viki": "Hľadanie vo viki",
     "get_viki_page": "Čítanie podkladov vo viki",
     "get_viki_revision": "Čítanie podkladov vo viki",
-    "propose_viki_changeset": "Návrh zmien vo viki",
+    "apply_viki_draft_changeset": "Vytvorenie draftov vo viki",
 }
 
 
@@ -41,9 +41,11 @@ def _tool_candidates(name, payload):
     if name == "search_viki":
         candidates = payload.get("documents")
     elif name == "get_viki_page":
-        candidates = [payload.get("acceptedRevision"), payload.get("draftRevision")]
+        candidates = [payload.get("approvedRevision"), payload.get("draftRevision")]
     elif name == "get_viki_revision":
         candidates = [payload]
+    elif name == "apply_viki_draft_changeset":
+        candidates = payload.get("drafts")
     else:
         return []
     return candidates if isinstance(candidates, list) else []
@@ -70,20 +72,6 @@ def _receipt(candidate):
 
 def _safe_result(name, content):
     payload = _decode_content(content)
-    if name == "propose_viki_changeset":
-        proposal = payload.get("proposal") if isinstance(payload, dict) else None
-        if not isinstance(proposal, dict):
-            return {"citations": [], "drafts": [], "proposal": None}
-        return {
-            "citations": [],
-            "drafts": [],
-            "proposal": {
-                "id": proposal.get("id"),
-                "turnId": proposal.get("turnId"),
-                "summary": proposal.get("summary"),
-                "status": proposal.get("status"),
-            },
-        }
     receipts = []
     seen = set()
     for candidate in _tool_candidates(name, payload):
@@ -92,6 +80,16 @@ def _safe_result(name, content):
             continue
         seen.add(receipt["revisionId"])
         receipts.append(receipt)
+    if name == "apply_viki_draft_changeset":
+        drafts = [
+            {
+                "revisionId": receipt["revisionId"],
+                "pageId": receipt["pageId"],
+                "pageTitle": receipt["pageTitle"],
+            }
+            for receipt in receipts
+        ]
+        return {"citations": [], "drafts": drafts}
     return {"citations": receipts, "drafts": []}
 
 

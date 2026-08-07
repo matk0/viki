@@ -1,0 +1,19 @@
+name: viki-developer
+version: 1.0.0
+description: Interný pracovník, ktorý implementuje schválené Gherkin scenáre
+hermes_requires: "==0.19.0"
+author: viki
+env_requires:
+  - name: OPENAI_API_KEY
+    description: OpenAI API kľúč pre vývojový model
+    required: false
+  - name: VIKI_DEVELOPER_TOOL_TOKEN
+    description: Samostatné overenie privilegovaného vývojového API viki
+    required: true
+distribution_owned:
+  - distribution.yaml
+  - config.yaml
+  - SOUL.md
+  - .no-bundled-skills
+  - plugins/viki
+  - scripts/check_queue.py

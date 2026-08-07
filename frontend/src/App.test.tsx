@@ -16,8 +16,7 @@ vi.mock('./pages/LibraryPage', () => ({ LibraryPage: ({ kind }: { kind: string }
 vi.mock('./pages/PagePage', () => ({ PagePage: ({ pageId }: { pageId: string }) => <p>page-{pageId}</p> }))
 vi.mock('./pages/AuditPage', () => ({ AuditPage: () => <p>audit</p> }))
 vi.mock('./pages/SearchPage', () => ({ SearchPage: () => <p>search</p> }))
-vi.mock('./pages/DraftPage', () => ({ DraftPage: ({ proposalId }: { proposalId: string }) => <p>draft-{proposalId}</p> }))
-vi.mock('./pages/DraftsPage', () => ({ DraftsPage: () => <p>drafts</p> }))
+vi.mock('./pages/AssistantTurnPage', () => ({ AssistantTurnPage: ({ turnId }: { turnId: string }) => <p>assistant-turn-{turnId}</p> }))
 vi.mock('./pages/NotFoundPage', () => ({ NotFoundPage: () => <p>not-found</p> }))
 
 beforeEach(() => {
@@ -44,8 +43,9 @@ it('routes authenticated users across every workspace screen', () => {
     ['/features', 'library-feature'],
     ['/audit', 'audit'],
     ['/search', 'search'],
-    ['/drafts', 'drafts'],
-    ['/drafts/proposal%201', 'draft-proposal 1'],
+    ['/assistant/turns/turn%201', 'assistant-turn-turn 1'],
+    ['/drafts', 'not-found'],
+    ['/drafts/proposal%201', 'not-found'],
     ['/page/page%201', 'page-page 1'],
     ['/unknown', 'not-found'],
   ]

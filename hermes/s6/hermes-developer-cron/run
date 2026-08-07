@@ -1,0 +1,17 @@
+#!/command/with-contenv sh
+set -eu
+
+export HOME=/opt/data
+export HERMES_HOME=/opt/data/profiles/viki-developer
+case "${VIKI_DEVELOPER_ENABLED:-false}" in
+    1|true|TRUE|True) ;;
+    *) exec sleep infinity ;;
+esac
+: "${VIKI_DEVELOPER_TOOL_TOKEN:?VIKI_DEVELOPER_TOOL_TOKEN is required}"
+export HERMES_TUI_TOOLSETS=viki_develop
+export HERMES_TUI_PASS_SESSION_ID=0
+export VIKI_DEVELOPER_TOOL_TOKEN
+export VIKI_INTERNAL_URL="${VIKI_INTERNAL_URL:-http://viki:8090}"
+
+cd /opt/data
+exec s6-setuidgid hermes hermes -p viki-developer gateway run --no-supervise --external-supervisor

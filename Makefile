@@ -2,15 +2,18 @@
 
 GO_COVERAGE_MIN ?= 100
 HERMES_COVERAGE_MIN ?= 100
+TEST_COMPOSE_ENV = INITIAL_USER_PASSWORD=viki-test-password HERMES_QA_TOKEN=viki-test-qa-token HERMES_EDIT_TOKEN=viki-test-edit-token VIKI_HERMES_TOOL_TOKEN=viki-test-tool-token DEVELOPMENT_TARGET_TOKEN=viki-test-target-token VIKI_DEVELOPER_ENABLED=false
 
 dev:
-	@trap 'kill 0' INT TERM EXIT; \
-	(cd backend && INITIAL_USER_PASSWORD=$${INITIAL_USER_PASSWORD:-password} go run ./cmd/viki) & \
+	@: "$${INITIAL_USER_PASSWORD:?Set INITIAL_USER_PASSWORD before running make dev}"; \
+	trap 'kill 0' INT TERM EXIT; \
+	(cd backend && INITIAL_USER_PASSWORD="$$INITIAL_USER_PASSWORD" go run ./cmd/viki) & \
 	(cd frontend && npm run dev) & \
 	wait
 
 backend:
-	cd backend && INITIAL_USER_PASSWORD=$${INITIAL_USER_PASSWORD:-password} go run ./cmd/viki
+	@: "$${INITIAL_USER_PASSWORD:?Set INITIAL_USER_PASSWORD before running make backend}"
+	cd backend && INITIAL_USER_PASSWORD="$$INITIAL_USER_PASSWORD" go run ./cmd/viki
 
 frontend:
 	cd frontend && npm run dev
@@ -64,10 +67,10 @@ test-coverage-hermes:
 	COVERAGE_FILE=coverage/hermes.data python3 -m coverage html -d coverage/hermes
 
 reset-test-database:
-	docker compose up -d database
-	@until docker compose exec -T database pg_isready -U viki -d postgres >/dev/null 2>&1; do sleep 1; done
-	docker compose exec -T database dropdb -U viki --if-exists --force viki_test
-	docker compose exec -T database createdb -U viki viki_test
+	@$(TEST_COMPOSE_ENV) docker compose up -d database
+	@until $(TEST_COMPOSE_ENV) docker compose exec -T database pg_isready -U viki -d postgres >/dev/null 2>&1; do sleep 1; done
+	@$(TEST_COMPOSE_ENV) docker compose exec -T database dropdb -U viki --if-exists --force viki_test
+	@$(TEST_COMPOSE_ENV) docker compose exec -T database createdb -U viki viki_test
 
 generate:
 	cd backend && go generate ./internal/api

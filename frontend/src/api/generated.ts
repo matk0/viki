@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/step-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listStepDefinitions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pages/{pageId}": {
         parameters: {
             query?: never;
@@ -154,7 +170,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/revisions/{revisionId}/publish": {
+    "/api/v1/revisions/{revisionId}/approve": {
         parameters: {
             query?: never;
             header?: never;
@@ -165,14 +181,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["publishRevision"];
+        post: operations["approveRevision"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/revisions/{revisionId}/vote": {
+    "/api/v1/revisions/{revisionId}/objections": {
         parameters: {
             query?: never;
             header?: never;
@@ -182,8 +198,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put: operations["setVote"];
-        post?: never;
+        put?: never;
+        post: operations["raiseObjection"];
         delete?: never;
         options?: never;
         head?: never;
@@ -206,18 +222,18 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/comments/{commentId}/resolve": {
+    "/api/v1/objections/{objectionId}/resolve": {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                commentId: string;
+                objectionId: string;
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        post: operations["resolveComment"];
+        post: operations["resolveObjection"];
         delete?: never;
         options?: never;
         head?: never;
@@ -363,95 +379,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/draft-proposals": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listDraftProposals"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/draft-proposals/{proposalId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-            };
-            cookie?: never;
-        };
-        get: operations["getDraftProposal"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/draft-proposals/{proposalId}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["approveDraftProposal"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/draft-proposals/{proposalId}/operations/{operationKey}/review": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-                operationKey: components["parameters"]["OperationKey"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["reviewDraftProposalOperation"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/draft-proposals/{proposalId}/discard": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["discardDraftProposal"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -463,17 +390,23 @@ export interface components {
         /** @enum {string} */
         ConceptKind: "noun" | "verb";
         /** @enum {string} */
-        RevisionStatus: "draft" | "accepted" | "superseded";
+        RevisionStatus: "draft" | "approved" | "superseded";
         /** @enum {string} */
-        VoteValue: "approve" | "reject";
+        DevelopmentStatus: "queued" | "running" | "developed" | "blocked";
+        /** @enum {string} */
+        ReviewReadiness: "approved" | "ready" | "blocked";
+        /** @enum {string} */
+        ReviewBlockerType: "objection" | "parent_feature";
         /** @enum {string} */
         AssistantMode: "qa" | "edit";
         /** @enum {string} */
         AssistantConversationState: "idle" | "running" | "awaiting_clarification" | "stopped" | "error" | "unavailable";
         /** @enum {string} */
-        AssistantEventType: "message_delta" | "activity" | "citation" | "draft_created" | "draft_proposed" | "draft_published" | "draft_discarded" | "clarification" | "completed" | "stopped" | "error";
+        AssistantEventType: "message_delta" | "activity" | "citation" | "draft_created" | "clarification" | "completed" | "stopped" | "error";
         /** @enum {string} */
         BDDKeyword: "given" | "when" | "then" | "and" | "but";
+        /** @enum {string} */
+        StepRole: "context" | "action" | "outcome";
         User: {
             /** Format: uuid */
             id: string;
@@ -493,12 +426,14 @@ export interface components {
             slug: string;
             title: string;
             /** Format: uuid */
-            acceptedRevisionId?: string;
+            approvedRevisionId?: string;
             /** Format: uuid */
             latestDraftRevisionId?: string;
-            accepted: boolean;
+            approvedRevisionTitle?: string;
+            draftRevisionTitle?: string;
+            approved: boolean;
             hasDraft: boolean;
-            unresolvedRejections: number;
+            unresolvedObjections: number;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -511,7 +446,19 @@ export interface components {
             stableId?: string;
             position?: number;
             keyword: components["schemas"]["BDDKeyword"];
+            /** Format: uuid */
+            definitionId?: string;
+            expression?: string;
+            arguments: string[];
             text: string;
+        };
+        StepDefinition: {
+            /** Format: uuid */
+            id: string;
+            expression: string;
+            role: components["schemas"]["StepRole"];
+            approved: boolean;
+            usageCount: number;
         };
         PageReference: {
             /** Format: uuid */
@@ -523,7 +470,6 @@ export interface components {
         RevisionContent: {
             title: string;
             bodyMd: string;
-            aliases: string[];
             steps: components["schemas"]["BDDStep"][];
             references: components["schemas"]["PageReference"][];
         };
@@ -540,7 +486,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
-            acceptedAt?: string;
+            approvedAt?: string;
         };
         RevisionSummary: {
             /** Format: uuid */
@@ -552,7 +498,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
-            acceptedAt?: string;
+            approvedAt?: string;
         };
         Comment: {
             /** Format: uuid */
@@ -563,36 +509,70 @@ export interface components {
             revisionId: string;
             /** Format: uuid */
             parentCommentId?: string;
-            anchorKind?: string;
-            anchorId?: string;
             body: string;
-            blocking: boolean;
+            author: components["schemas"]["User"];
+            /** Format: date-time */
+            createdAt: string;
+            replies: components["schemas"]["Comment"][];
+        };
+        Objection: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            pageId: string;
+            /** Format: uuid */
+            revisionId: string;
+            revisionNumber: number;
+            body: string;
             author: components["schemas"]["User"];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             resolvedAt?: string;
             resolvedBy?: components["schemas"]["User"];
-            replies: components["schemas"]["Comment"][];
         };
-        Vote: {
+        ReviewBlocker: {
+            /** Format: uuid */
+            id: string;
+            type: components["schemas"]["ReviewBlockerType"];
+            /** Format: uuid */
+            sourceRevisionId?: string;
+            sourceRevisionNumber?: number;
+            body?: string;
+            author?: components["schemas"]["User"];
+            /** Format: uuid */
+            relatedPageId?: string;
+            relatedPageTitle?: string;
+        };
+        RevisionReviewState: {
             /** Format: uuid */
             revisionId: string;
-            value: components["schemas"]["VoteValue"];
-            user: components["schemas"]["User"];
-            /** Format: uuid */
-            commentId?: string;
-            /** Format: date-time */
-            createdAt: string;
+            state: components["schemas"]["ReviewReadiness"];
+            blockers: components["schemas"]["ReviewBlocker"][];
         };
         PageDetail: {
             page: components["schemas"]["Page"];
-            acceptedRevision?: components["schemas"]["Revision"];
+            approvedRevision?: components["schemas"]["Revision"];
             draftRevision?: components["schemas"]["Revision"];
             revisions: components["schemas"]["RevisionSummary"][];
             comments: components["schemas"]["Comment"][];
-            votes: components["schemas"]["Vote"][];
+            objections: components["schemas"]["Objection"][];
             children: components["schemas"]["Page"][];
+            reviewStates: components["schemas"]["RevisionReviewState"][];
+            development?: components["schemas"]["ScenarioDevelopment"];
+            developmentProgress?: components["schemas"]["FeatureDevelopmentProgress"];
+        };
+        ScenarioDevelopment: {
+            /** Format: uuid */
+            revisionId: string;
+            status: components["schemas"]["DevelopmentStatus"];
+            detail: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        FeatureDevelopmentProgress: {
+            developed: number;
+            total: number;
         };
         Citation: {
             /** Format: uuid */
@@ -608,65 +588,6 @@ export interface components {
             /** Format: uuid */
             pageId: string;
             pageTitle: string;
-        };
-        /** @enum {string} */
-        AssistantDraftProposalStatus: "awaiting_approval" | "published" | "discarded";
-        /** @enum {string} */
-        AssistantOperationReviewValue: "approve" | "reject";
-        AssistantOperationReview: {
-            operationKey: string;
-            value: components["schemas"]["AssistantOperationReviewValue"];
-            reason?: string;
-            /** Format: date-time */
-            reviewedAt: string;
-        };
-        ReviewDraftProposalOperationInput: {
-            value: components["schemas"]["AssistantOperationReviewValue"];
-            reason?: string;
-            /**
-             * @description Apply the same decision atomically to child scenarios and newly proposed terms referenced by the selected feature tree.
-             * @default false
-             */
-            cascadeDescendants: boolean;
-        };
-        RejectDraftProposalInput: {
-            reason: string;
-        };
-        AssistantChangeOperation: {
-            /** @enum {string} */
-            operation: "create" | "revise";
-            clientKey?: string;
-            /** Format: uuid */
-            pageId?: string;
-            /** Format: uuid */
-            baseRevisionId?: string;
-            kind: components["schemas"]["PageKind"];
-            conceptKind?: components["schemas"]["ConceptKind"];
-            /** Format: uuid */
-            parentId?: string;
-            parentClientKey?: string;
-            slug: string;
-            content: components["schemas"]["RevisionContent"];
-        };
-        AssistantDraftProposal: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            conversationId: string;
-            /** Format: uuid */
-            turnId: string;
-            summary: string;
-            operations: components["schemas"]["AssistantChangeOperation"][];
-            operationReviews: components["schemas"]["AssistantOperationReview"][];
-            status: components["schemas"]["AssistantDraftProposalStatus"];
-            rejectionReason?: string;
-            publishedRevisions: components["schemas"]["Revision"][];
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            updatedAt: string;
-            /** Format: date-time */
-            publishedAt?: string;
         };
         AssistantMessage: {
             id: string;
@@ -768,16 +689,20 @@ export interface components {
             parentId?: string;
             slug: string;
             content: components["schemas"]["RevisionContent"];
+            /** @description Required when kind is feature and rejected for every other page kind. */
+            initialScenario?: components["schemas"]["InitialScenarioRequest"];
+        };
+        InitialScenarioRequest: {
+            slug: string;
+            content: components["schemas"]["RevisionContent"];
         };
         SaveRevisionRequest: {
             /** Format: uuid */
             baseRevisionId: string;
             content: components["schemas"]["RevisionContent"];
         };
-        VoteRequest: {
-            value: components["schemas"]["VoteValue"];
-            /** @description Required when value is reject. */
-            reason?: string;
+        ObjectionRequest: {
+            reason: string;
         };
         CommentRequest: {
             /** Format: uuid */
@@ -787,9 +712,6 @@ export interface components {
             body: string;
             /** Format: uuid */
             parentCommentId?: string;
-            /** @enum {string} */
-            anchorKind?: "field" | "step";
-            anchorId?: string;
         };
         APIError: {
             error: {
@@ -825,8 +747,6 @@ export interface components {
         RevisionId: string;
         ConversationId: string;
         ClarificationRequestId: string;
-        ProposalId: string;
-        OperationKey: string;
     };
     requestBodies: never;
     headers: never;
@@ -982,6 +902,32 @@ export interface operations {
             422: components["responses"]["Error"];
         };
     };
+    listStepDefinitions: {
+        parameters: {
+            query?: {
+                q?: string;
+                role?: components["schemas"]["StepRole"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved reusable Gherkin step definitions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        definitions: components["schemas"]["StepDefinition"][];
+                    };
+                };
+            };
+            422: components["responses"]["Error"];
+        };
+    };
     getPage: {
         parameters: {
             query?: never;
@@ -993,7 +939,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page with accepted and current draft states. */
+            /** @description Page with approved and current draft states. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1056,7 +1002,7 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
-    publishRevision: {
+    approveRevision: {
         parameters: {
             query?: never;
             header?: never;
@@ -1067,7 +1013,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page after atomic publication. */
+            /** @description Page after atomic approval. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1080,7 +1026,7 @@ export interface operations {
             422: components["responses"]["Error"];
         };
     };
-    setVote: {
+    raiseObjection: {
         parameters: {
             query?: never;
             header?: never;
@@ -1091,17 +1037,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["VoteRequest"];
+                "application/json": components["schemas"]["ObjectionRequest"];
             };
         };
         responses: {
-            /** @description Vote attached to the exact revision. */
-            200: {
+            /** @description Blocking objection recorded for the exact revision. */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Vote"];
+                    "application/json": components["schemas"]["Objection"];
                 };
             };
             422: components["responses"]["Error"];
@@ -1132,24 +1078,24 @@ export interface operations {
             422: components["responses"]["Error"];
         };
     };
-    resolveComment: {
+    resolveObjection: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                commentId: string;
+                objectionId: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Resolved blocking thread. */
+            /** @description Resolved objection. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Comment"];
+                    "application/json": components["schemas"]["Objection"];
                 };
             };
             404: components["responses"]["Error"];
@@ -1397,135 +1343,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            422: components["responses"]["Error"];
-        };
-    };
-    listDraftProposals: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description All staged Edit proposals owned by the current user, with pending proposals first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        proposals: components["schemas"]["AssistantDraftProposal"][];
-                    };
-                };
-            };
-        };
-    };
-    getDraftProposal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Staged Edit proposal owned by the current user. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantDraftProposal"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    approveDraftProposal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Proposal atomically published as accepted revisions. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantDraftProposal"];
-                };
-            };
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            422: components["responses"]["Error"];
-        };
-    };
-    reviewDraftProposalOperation: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-                operationKey: components["parameters"]["OperationKey"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReviewDraftProposalOperationInput"];
-            };
-        };
-        responses: {
-            /** @description The operation review was saved. The approved subset is atomically published after every operation has been reviewed. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantDraftProposal"];
-                };
-            };
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            422: components["responses"]["Error"];
-        };
-    };
-    discardDraftProposal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposalId: components["parameters"]["ProposalId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RejectDraftProposalInput"];
-            };
-        };
-        responses: {
-            /** @description Proposal rejected with a recorded reason and without creating wiki records. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantDraftProposal"];
-                };
             };
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];

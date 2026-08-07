@@ -10,12 +10,10 @@ import {
   useState,
 } from 'react'
 import { api, openAssistantEventStream } from './api/client'
-import { useRouter } from './router'
 import type {
   AssistantConnectionState,
   AssistantConversation,
   AssistantConversationSummary,
-  AssistantDraftProposal,
   AssistantDraftReceipt,
   AssistantClarification,
   AssistantMessage,
@@ -27,10 +25,21 @@ import type {
 import { useSlovakVoiceInput } from './voice'
 import { useWorkspace } from './workspace'
 import { useI18n } from './i18n'
+import { useRouter } from './router'
 
 interface Activity {
   state: string
   mode: AssistantMode
+}
+
+export interface AssistantTurnProgress {
+  id: string
+  mode: AssistantMode
+  status: 'running' | 'awaiting_clarification' | 'completed' | 'stopped' | 'error'
+  activities: string[]
+  summary: string
+  drafts: AssistantDraftReceipt[]
+  error?: string
 }
 
 type PendingClarification = AssistantClarification & { choices?: string[]; turnId?: string }
@@ -44,7 +53,7 @@ interface AssistantValue {
   composer: string
   connection: AssistantConnectionState
   activity: Activity | null
-  proposals: Record<string, AssistantDraftProposal>
+  turns: Record<string, AssistantTurnProgress>
   clarification: PendingClarification | null
   clarificationResponse: string
   error: string
@@ -126,23 +135,31 @@ function appendDraft(message: AssistantMessage, draft: AssistantDraftReceipt): A
   return { ...message, drafts: [...message.drafts, draft] }
 }
 
+function newTurn(id: string, mode: AssistantMode): AssistantTurnProgress {
+  return { id, mode, status: 'running', activities: [], summary: '', drafts: [] }
+}
+
+function appendTurnActivity(turn: AssistantTurnProgress, state: string): AssistantTurnProgress {
+  return turn.activities.includes(state) ? turn : { ...turn, activities: [...turn.activities, state] }
+}
+
 function isManagementCommand(content: string): boolean {
   return content.trimStart().startsWith('/')
 }
 
 export function AssistantProvider({ children }: { children: ReactNode }) {
   const { t } = useI18n()
-  const { reloadPages } = useWorkspace()
   const { navigate } = useRouter()
+  const { reloadPages } = useWorkspace()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
   const [conversations, setConversations] = useState<AssistantConversationSummary[]>([])
   const [conversation, setConversation] = useState<AssistantConversation | null>(null)
   const [loading, setLoading] = useState(true)
-  const [mode, setModeState] = useState<AssistantMode>('qa')
+  const [mode, setModeState] = useState<AssistantMode>('edit')
   const [composer, setComposer] = useState('')
   const [connection, setConnection] = useState<AssistantConnectionState>('connecting')
   const [activity, setActivity] = useState<Activity | null>(null)
-  const [proposals, setProposals] = useState<Record<string, AssistantDraftProposal>>({})
+  const [turns, setTurns] = useState<Record<string, AssistantTurnProgress>>({})
   const [clarification, setClarification] = useState<PendingClarification | null>(null)
   const [clarificationResponse, setClarificationResponse] = useState('')
   const [error, setError] = useState('')
@@ -165,9 +182,9 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     return normalized
   }, [])
 
-  const loadConversation = useCallback(async (id: string) => {
+  const loadConversation = useCallback(async (id: string, preferredMode?: AssistantMode) => {
     const next = rememberConversation(await api.assistantConversation(id))
-    setModeState(next.lastMode)
+    setModeState(isConversationActive(next) ? next.lastMode : (preferredMode ?? next.lastMode))
     return next
   }, [rememberConversation])
 
@@ -184,13 +201,14 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     try {
       const result = await api.assistantConversations()
       setConversations(result.conversations)
+      const preferredMode: AssistantMode = nextStatus.edit.ready ? 'edit' : nextStatus.qa.ready ? 'qa' : mode
       const selected = conversation && result.conversations.some((item) => item.id === conversation.id)
         ? conversation.id
         : result.conversations[0]?.id
       if (selected) {
-        await loadConversation(selected)
-      } else if (nextStatus[mode].ready) {
-        const next = rememberConversation(await api.createAssistantConversation(mode))
+        await loadConversation(selected, preferredMode)
+      } else if (nextStatus[preferredMode].ready) {
+        const next = rememberConversation(await api.createAssistantConversation(preferredMode))
         setModeState(next.lastMode)
       } else {
         setConversation(null)
@@ -211,11 +229,19 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const handleStreamEvent = useCallback((event: AssistantStreamEvent, conversationId: string) => {
     if (event.type === 'activity') {
       setActivity({ state: event.data.state, mode: event.data.mode })
+      setTurns((current) => {
+        const turn = current[event.data.turnId] ?? newTurn(event.data.turnId, event.data.mode)
+        return { ...current, [event.data.turnId]: appendTurnActivity({ ...turn, status: 'running' }, event.data.state) }
+      })
       setConversation((current) => current?.id === conversationId ? { ...current, state: 'running' } : current)
       return
     }
     if (event.type === 'message_delta') {
       setActivity({ state: 'thinking', mode: event.data.mode })
+      setTurns((current) => {
+        const turn = current[event.data.turnId] ?? newTurn(event.data.turnId, event.data.mode)
+        return { ...current, [event.data.turnId]: { ...turn, status: 'running', summary: turn.summary + event.data.delta } }
+      })
       setConversation((current) => current?.id === conversationId
         ? upsertAssistantMessage(current, event.data.turnId, event.data.mode, (message) => ({
             ...message,
@@ -231,34 +257,45 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
       return
     }
     if (event.type === 'draft_created') {
+      setTurns((current) => {
+        const turn = current[event.data.turnId] ?? newTurn(event.data.turnId, event.data.mode)
+        const drafts = turn.drafts.some((draft) => draft.revisionId === event.data.draft.revisionId)
+          ? turn.drafts
+          : [...turn.drafts, event.data.draft]
+        return { ...current, [event.data.turnId]: { ...turn, drafts } }
+      })
       setConversation((current) => current?.id === conversationId
         ? upsertAssistantMessage(current, event.data.turnId, event.data.mode, (message) => appendDraft(message, event.data.draft))
         : current)
       void Promise.resolve(reloadPages())
       return
     }
-    if (event.type === 'draft_proposed' || event.type === 'draft_published' || event.type === 'draft_discarded') {
-      const proposal = event.data.proposal
-      setProposals((current) => ({ ...current, [proposal.id]: proposal, [proposal.turnId]: proposal }))
-      if (event.type === 'draft_proposed') {
-        setActivity({ state: 'awaiting_approval', mode: event.data.mode })
-      } else {
-        void Promise.resolve(reloadPages())
-      }
-      return
-    }
     if (event.type === 'clarification') {
+      setTurns((current) => {
+        const turn = current[event.data.turnId] ?? newTurn(event.data.turnId, event.data.mode)
+        return { ...current, [event.data.turnId]: { ...turn, status: 'awaiting_clarification' } }
+      })
       setClarification({ turnId: event.data.turnId, requestId: event.data.requestId, mode: event.data.mode, message: event.data.message, choices: event.data.choices })
       setActivity({ state: 'clarifying', mode: event.data.mode })
       setConversation((current) => current?.id === conversationId ? { ...current, state: 'awaiting_clarification' } : current)
       return
     }
     if (event.type === 'error') {
+      if (event.data.turnId && event.data.mode) {
+        setTurns((current) => {
+          const turn = current[event.data.turnId!] ?? newTurn(event.data.turnId!, event.data.mode!)
+          return { ...current, [event.data.turnId!]: { ...turn, status: 'error', error: event.data.message } }
+        })
+      }
       setError(event.data.message)
       setActivity(null)
       setConversation((current) => current?.id === conversationId ? { ...current, state: 'error' } : current)
       return
     }
+    setTurns((current) => {
+      const turn = current[event.data.turnId] ?? newTurn(event.data.turnId, event.data.mode)
+      return { ...current, [event.data.turnId]: { ...turn, status: event.type === 'stopped' ? 'stopped' : 'completed' } }
+    })
     setActivity(null)
     setClarification(null)
     setClarificationResponse('')
@@ -366,7 +403,13 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     setActivity({ state: 'submitting', mode })
     try {
       const accepted = await api.sendAssistantMessage(conversation.id, content, mode)
-      if (mode === 'edit') navigate(`/drafts/${encodeURIComponent(accepted.turnId)}`)
+      if (mode === 'edit') {
+        setTurns((current) => {
+          const turn = current[accepted.turnId] ?? newTurn(accepted.turnId, mode)
+          return { ...current, [accepted.turnId]: appendTurnActivity(turn, 'submitted') }
+        })
+        navigate(`/assistant/turns/${encodeURIComponent(accepted.turnId)}`)
+      }
     } catch (reason) {
       setConversation((current) => current?.id === conversation.id
         ? { ...current, state: 'idle', messages: current.messages.filter((message) => message.id !== optimisticId) }
@@ -415,7 +458,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     composer,
     connection,
     activity,
-    proposals,
+    turns,
     clarification,
     clarificationResponse,
     error,
@@ -433,6 +476,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     refresh,
   }), [
     activity,
+    turns,
     clarification,
     clarificationResponse,
     composer,
@@ -444,7 +488,6 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     loading,
     mode,
     modeAvailable,
-    proposals,
     reconnect,
     refresh,
     respondToClarification,

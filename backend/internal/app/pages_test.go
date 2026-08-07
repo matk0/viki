@@ -10,22 +10,29 @@ import (
 	"strings"
 	"testing"
 
-	"viki/internal/governance"
 	"viki/internal/model"
 	"viki/internal/store"
 )
 
 type pagesRepository struct {
 	store.Repository
-	err           error
-	searchOptions model.SearchOptions
-	listedKind    *model.PageKind
-	createdInput  model.CreatePageInput
-	savedInput    model.SaveRevisionInput
-	voteValue     governance.VoteValue
-	voteReason    string
-	commentBody   string
-	auditLimit    int
+	err                 error
+	searchOptions       model.SearchOptions
+	listedKind          *model.PageKind
+	stepDefinitionQuery string
+	stepDefinitionRole  *model.StepRole
+	createdInput        model.CreatePageInput
+	savedInput          model.SaveRevisionInput
+	objectionReason     string
+	resolvedObjectionID string
+	commentBody         string
+	auditLimit          int
+}
+
+func (r *pagesRepository) ListStepDefinitions(_ context.Context, _ string, query string, role *model.StepRole) ([]model.StepDefinition, error) {
+	r.stepDefinitionQuery = query
+	r.stepDefinitionRole = role
+	return []model.StepDefinition{{ID: "definition-1", Expression: "zákazník má zmluvu", Role: model.StepContext, Approved: true, UsageCount: 2}}, r.err
 }
 
 func (r *pagesRepository) ListPages(_ context.Context, _ string, kind *model.PageKind) ([]model.Page, error) {
@@ -38,11 +45,8 @@ func (r *pagesRepository) SearchPages(_ context.Context, _ string, options model
 	return []model.SearchResult{{Page: model.Page{ID: "page-1", Title: "Zmluva"}, RevisionID: "revision-1"}}, r.err
 }
 
-func (r *pagesRepository) CreatePage(_ context.Context, _, _ string, input model.CreatePageInput, status model.RevisionStatus) (model.PageDetail, error) {
+func (r *pagesRepository) CreatePage(_ context.Context, _, _ string, input model.CreatePageInput) (model.PageDetail, error) {
 	r.createdInput = input
-	if status != model.RevisionDraft {
-		return model.PageDetail{}, errors.New("unexpected status")
-	}
 	return model.PageDetail{Page: model.Page{ID: "page-1", Title: input.Content.Title}}, r.err
 }
 
@@ -59,23 +63,23 @@ func (r *pagesRepository) SaveRevision(_ context.Context, _, _, _ string, input 
 	return model.Revision{ID: "revision-2", Title: input.Content.Title}, r.err
 }
 
-func (r *pagesRepository) PublishRevision(context.Context, string, string, string) (model.PageDetail, error) {
-	return model.PageDetail{Page: model.Page{ID: "page-1", Accepted: true}}, r.err
+func (r *pagesRepository) ApproveRevision(context.Context, string, string, string) (model.PageDetail, error) {
+	return model.PageDetail{Page: model.Page{ID: "page-1", Approved: true}}, r.err
 }
 
-func (r *pagesRepository) SetVote(_ context.Context, _, _, _ string, value governance.VoteValue, reason string) (model.Vote, error) {
-	r.voteValue = value
-	r.voteReason = reason
-	return model.Vote{RevisionID: "revision-1", Value: string(value)}, r.err
+func (r *pagesRepository) AddObjection(_ context.Context, _, _, revisionID, reason string) (model.Objection, error) {
+	r.objectionReason = reason
+	return model.Objection{ID: "objection-1", RevisionID: revisionID, Body: reason}, r.err
 }
 
-func (r *pagesRepository) AddComment(_ context.Context, _, _, _, _ string, _, _, _ *string, body string, _ bool) (model.Comment, error) {
+func (r *pagesRepository) ResolveObjection(_ context.Context, _, _, objectionID string) (model.Objection, error) {
+	r.resolvedObjectionID = objectionID
+	return model.Objection{ID: objectionID, Body: "resolved"}, r.err
+}
+
+func (r *pagesRepository) AddComment(_ context.Context, _, _, _, _ string, _ *string, body string) (model.Comment, error) {
 	r.commentBody = body
 	return model.Comment{ID: "comment-1", Body: body}, r.err
-}
-
-func (r *pagesRepository) ResolveComment(context.Context, string, string, string) (model.Comment, error) {
-	return model.Comment{ID: "comment-1", Body: "resolved"}, r.err
 }
 
 func (r *pagesRepository) ListAudit(_ context.Context, _ string, limit int) ([]model.AuditEvent, error) {
@@ -122,7 +126,32 @@ func TestPageListingSupportsKindSearchDraftsAndRepositoryErrors(t *testing.T) {
 	}
 }
 
-func TestPageCreationRevisionAndPublicationHandlers(t *testing.T) {
+func TestStepDefinitionListingFiltersApprovedCatalog(t *testing.T) {
+	t.Parallel()
+
+	repository := &pagesRepository{}
+	server := &Server{repository: repository, logger: discardLogger()}
+	recorder := httptest.NewRecorder()
+	server.listStepDefinitions(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/step-definitions?q=zmluva&role=context", nil), pageAuth())
+	if recorder.Code != http.StatusOK || repository.stepDefinitionQuery != "zmluva" || repository.stepDefinitionRole == nil || *repository.stepDefinitionRole != model.StepContext || !strings.Contains(recorder.Body.String(), `"usageCount":2`) {
+		t.Fatalf("status=%d query=%q role=%v body=%s", recorder.Code, repository.stepDefinitionQuery, repository.stepDefinitionRole, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	server.listStepDefinitions(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/step-definitions?role=unknown", nil), pageAuth())
+	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "invalid_step_role") {
+		t.Fatalf("invalid role status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	repository.err = errors.New("query failed")
+	recorder = httptest.NewRecorder()
+	server.listStepDefinitions(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/step-definitions", nil), pageAuth())
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("repository error status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPageCreationRevisionAndApprovalHandlers(t *testing.T) {
 	t.Parallel()
 
 	repository := &pagesRepository{}
@@ -133,6 +162,26 @@ func TestPageCreationRevisionAndPublicationHandlers(t *testing.T) {
 	server.createPage(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/pages", strings.NewReader(`{"kind":"concept","slug":"zmluva","content":{"title":"Zmluva","bodyMd":""}}`)), auth)
 	if recorder.Code != http.StatusCreated || repository.createdInput.Slug != "zmluva" {
 		t.Fatalf("create status=%d input=%+v body=%s", recorder.Code, repository.createdInput, recorder.Body.String())
+	}
+	recorder = httptest.NewRecorder()
+	server.createPage(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/pages", strings.NewReader(`{"kind":"concept","conceptKind":"noun","slug":"stary-format","content":{"title":"Starý formát","bodyMd":"","aliases":["alias"]}}`)), auth)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid_json") {
+		t.Fatalf("legacy alias payload status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	recorder = httptest.NewRecorder()
+	server.createPage(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/pages", strings.NewReader(`{"kind":"feature","slug":"contracts","content":{"title":"Contracts","bodyMd":""}}`)), auth)
+	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "feature_requires_scenario") {
+		t.Fatalf("feature without scenario status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	recorder = httptest.NewRecorder()
+	server.createPage(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/pages", strings.NewReader(`{"kind":"feature","slug":"contracts","content":{"title":"Contracts","bodyMd":""},"initialScenario":{"slug":"customer-signs","content":{"title":"Customer signs","bodyMd":"","steps":[{"keyword":"given","text":"a contract exists"},{"keyword":"when","text":"the customer signs"},{"keyword":"then","text":"the signature is stored"}]}}}`)), auth)
+	if recorder.Code != http.StatusCreated || repository.createdInput.InitialScenario == nil || repository.createdInput.InitialScenario.Slug != "customer-signs" {
+		t.Fatalf("feature with scenario status=%d input=%+v body=%s", recorder.Code, repository.createdInput, recorder.Body.String())
+	}
+	recorder = httptest.NewRecorder()
+	server.createPage(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/pages", strings.NewReader(`{"kind":"concept","conceptKind":"noun","slug":"contract","content":{"title":"Contract","bodyMd":""},"initialScenario":{"slug":"invalid","content":{"title":"Invalid","bodyMd":""}}}`)), auth)
+	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "invalid_initial_scenario") {
+		t.Fatalf("concept with scenario status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	assertHandlerInvalidJSONAndRepositoryError(t, server.createPage, repository, http.MethodPost, "/api/v1/pages", auth, `{`)
 
@@ -148,7 +197,7 @@ func TestPageCreationRevisionAndPublicationHandlers(t *testing.T) {
 		{name: "page detail", pathName: "pageID", pathValue: "page-1", method: http.MethodGet, wantStatus: http.StatusOK, invoke: func(w *httptest.ResponseRecorder, r *http.Request) { server.pageDetail(w, r, auth) }},
 		{name: "revision detail", pathName: "revisionID", pathValue: "revision-1", method: http.MethodGet, wantStatus: http.StatusOK, invoke: func(w *httptest.ResponseRecorder, r *http.Request) { server.revisionDetail(w, r, auth) }},
 		{name: "save revision", pathName: "pageID", pathValue: "page-1", method: http.MethodPost, body: `{"baseRevisionId":"revision-1","content":{"title":"Zmluva 2","bodyMd":""}}`, wantStatus: http.StatusCreated, invoke: func(w *httptest.ResponseRecorder, r *http.Request) { server.saveRevision(w, r, auth) }},
-		{name: "publish revision", pathName: "revisionID", pathValue: "revision-1", method: http.MethodPost, wantStatus: http.StatusOK, invoke: func(w *httptest.ResponseRecorder, r *http.Request) { server.publishRevision(w, r, auth) }},
+		{name: "approve revision", pathName: "revisionID", pathValue: "revision-1", method: http.MethodPost, wantStatus: http.StatusOK, invoke: func(w *httptest.ResponseRecorder, r *http.Request) { server.approveRevision(w, r, auth) }},
 	}
 
 	for _, test := range tests {
@@ -189,35 +238,35 @@ func TestPageCreationRevisionAndPublicationHandlers(t *testing.T) {
 	}
 }
 
-func TestVoteCommentResolutionAndAuditHandlers(t *testing.T) {
+func TestObjectionCommentAndAuditHandlers(t *testing.T) {
 	t.Parallel()
 
 	repository := &pagesRepository{}
 	server := &Server{repository: repository, logger: discardLogger()}
 	auth := pageAuth()
 
-	vote := func(body string, revisionID string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(body))
+	objection := func(body, revisionID string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 		request.SetPathValue("revisionID", revisionID)
 		recorder := httptest.NewRecorder()
-		server.setVote(recorder, request, auth)
+		server.raiseObjection(recorder, request, auth)
 		return recorder
 	}
-	if recorder := vote(`{"value":"reject","reason":"Chýba cena"}`, "revision-1"); recorder.Code != http.StatusOK || repository.voteValue != governance.VoteReject || repository.voteReason != "Chýba cena" {
-		t.Fatalf("vote status=%d value=%q reason=%q body=%s", recorder.Code, repository.voteValue, repository.voteReason, recorder.Body.String())
+	if recorder := objection(`{"reason":"Chýba potvrdenie"}`, "revision-1"); recorder.Code != http.StatusCreated || repository.objectionReason != "Chýba potvrdenie" || !strings.Contains(recorder.Body.String(), `"id":"objection-1"`) {
+		t.Fatalf("objection status=%d reason=%q body=%s", recorder.Code, repository.objectionReason, recorder.Body.String())
 	}
-	if recorder := vote(`{`, "revision-1"); recorder.Code != http.StatusBadRequest {
-		t.Fatalf("invalid vote status=%d", recorder.Code)
+	if recorder := objection(`{"reason":"Chýba potvrdenie"}`, ""); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("missing objection ID status=%d", recorder.Code)
 	}
-	if recorder := vote(`{"value":"unknown"}`, "revision-1"); recorder.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("unsupported vote status=%d body=%s", recorder.Code, recorder.Body.String())
+	if recorder := objection(`{`, "revision-1"); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("invalid objection status=%d", recorder.Code)
 	}
-	if recorder := vote(`{"value":"approve"}`, ""); recorder.Code != http.StatusBadRequest {
-		t.Fatalf("missing vote ID status=%d", recorder.Code)
+	if recorder := objection(`{"reason":" "}`, "revision-1"); recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("empty objection status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	repository.err = errors.New("vote failed")
-	if recorder := vote(`{"value":"approve"}`, "revision-1"); recorder.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("vote error status=%d body=%s", recorder.Code, recorder.Body.String())
+	repository.err = errors.New("objection failed")
+	if recorder := objection(`{"reason":"Chýba potvrdenie"}`, "revision-1"); recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("objection error status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	repository.err = nil
 
@@ -242,19 +291,19 @@ func TestVoteCommentResolutionAndAuditHandlers(t *testing.T) {
 
 	resolve := func(id string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(http.MethodPost, "/", nil)
-		request.SetPathValue("commentID", id)
+		request.SetPathValue("objectionID", id)
 		recorder := httptest.NewRecorder()
-		server.resolveComment(recorder, request, auth)
+		server.resolveObjection(recorder, request, auth)
 		return recorder
 	}
-	if recorder := resolve("comment-1"); recorder.Code != http.StatusOK {
+	if recorder := resolve("objection-1"); recorder.Code != http.StatusOK || repository.resolvedObjectionID != "objection-1" {
 		t.Fatalf("resolve status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if recorder := resolve(""); recorder.Code != http.StatusBadRequest {
-		t.Fatalf("missing comment ID status=%d", recorder.Code)
+		t.Fatalf("missing objection ID status=%d", recorder.Code)
 	}
 	repository.err = errors.New("resolve failed")
-	if recorder := resolve("comment-1"); recorder.Code != http.StatusUnprocessableEntity {
+	if recorder := resolve("objection-1"); recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("resolve error status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 

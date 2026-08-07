@@ -5,43 +5,28 @@ import (
 	"strings"
 )
 
-type VoteValue string
-
-const (
-	VoteApprove VoteValue = "approve"
-	VoteReject  VoteValue = "reject"
-)
-
 var (
-	ErrInvalidVote                = errors.New("invalid vote")
-	ErrRejectionReasonRequired    = errors.New("rejection reason is required")
-	ErrRejectedProposalDependency = errors.New("approved proposal operation depends on a rejected operation")
-	ErrUnresolvedRejection        = errors.New("unresolved rejection blocks publication")
+	ErrObjectionReasonRequired  = errors.New("objection reason is required")
+	ErrUnresolvedObjection      = errors.New("unresolved objection blocks approval")
+	ErrParentFeatureNotApproved = errors.New("parent feature must be approved before its scenario")
 )
 
-type BlockingThread struct {
+type ObjectionState struct {
 	ID       string
 	Resolved bool
 }
 
-func ValidateVote(value VoteValue, reason string) error {
-	switch value {
-	case VoteApprove:
-		return nil
-	case VoteReject:
-		if strings.TrimSpace(reason) == "" {
-			return ErrRejectionReasonRequired
-		}
-		return nil
-	default:
-		return ErrInvalidVote
+func ValidateObjectionReason(reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return ErrObjectionReasonRequired
 	}
+	return nil
 }
 
-func CanPublish(threads []BlockingThread) error {
-	for _, thread := range threads {
-		if !thread.Resolved {
-			return ErrUnresolvedRejection
+func CanApprove(objections []ObjectionState) error {
+	for _, objection := range objections {
+		if !objection.Resolved {
+			return ErrUnresolvedObjection
 		}
 	}
 	return nil

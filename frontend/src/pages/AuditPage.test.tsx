@@ -9,8 +9,8 @@ beforeEach(() => { mocks.audit.mockReset() })
 
 it('shows loading then every known audit label and unknown actions', async () => {
   const actions = [
-    'page.created', 'revision.saved', 'revision.published', 'comment.created', 'comment.resolved', 'vote.recorded',
-    'assistant.drafts_created', 'assistant.proposal_created', 'assistant.proposal_published', 'assistant.proposal.discarded',
+    'page.created', 'revision.saved', 'revision.approved', 'revision.published', 'comment.created', 'objection.created', 'objection.resolved',
+    'assistant.drafts_created', 'assistant.proposal_created', 'assistant.proposal_published',
     'assistant.proposal_discarded', 'ai.drafts_created', 'custom.action',
   ]
   mocks.audit.mockResolvedValue({ events: actions.map((action, index) => ({
@@ -21,6 +21,8 @@ it('shows loading then every known audit label and unknown actions', async () =>
   render(<AuditPage />)
   expect(document.querySelector('.spinner')).toBeInTheDocument()
   expect(await screen.findByText('custom.action')).toBeInTheDocument()
+  expect(screen.getByText(/schválil\(a\) verziu/)).toBeInTheDocument()
+  expect(screen.getAllByText(/vytvoril\(a\) drafty cez asistenta/)).toHaveLength(2)
   expect(screen.getByText(/12345678/)).toBeInTheDocument()
   expect(screen.getByText(/Systém/)).toBeInTheDocument()
 })

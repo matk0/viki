@@ -70,8 +70,8 @@ export function AssistantPanel() {
         <strong>{t('assistant.needClarification')}</strong>
         <p>{assistant.clarification.message}</p>
         {assistant.clarification.choices && assistant.clarification.choices.length > 0 && <div className="clarification-choices">{assistant.clarification.choices.map((choice) => <button type="button" key={choice} onClick={() => assistant.setClarificationResponse(choice)}>{choice}</button>)}</div>}
-        <label><span>{t('proposal.yourAnswer')}</span><textarea rows={2} value={assistant.clarificationResponse} onChange={(event) => assistant.setClarificationResponse(event.target.value)} /></label>
-        <button type="submit" disabled={!assistant.clarificationResponse.trim()}>{t('proposal.continue')}</button>
+        <label><span>{t('assistant.yourAnswer')}</span><textarea rows={2} value={assistant.clarificationResponse} onChange={(event) => assistant.setClarificationResponse(event.target.value)} /></label>
+        <button type="submit" disabled={!assistant.clarificationResponse.trim()}>{t('assistant.continue')}</button>
       </form>}
       {assistant.error && <div className="assistant-error" role="alert">{assistant.error}</div>}
     </div>

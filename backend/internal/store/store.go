@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"viki/internal/governance"
 	"viki/internal/model"
 )
 
@@ -29,22 +28,21 @@ type Repository interface {
 	SearchPages(context.Context, string, model.SearchOptions) ([]model.SearchResult, error)
 	PageDetail(context.Context, string, string) (model.PageDetail, error)
 	Revision(context.Context, string, string) (model.Revision, error)
-	CreatePage(context.Context, string, string, model.CreatePageInput, model.RevisionStatus) (model.PageDetail, error)
+	ListStepDefinitions(context.Context, string, string, *model.StepRole) ([]model.StepDefinition, error)
+	CreatePage(context.Context, string, string, model.CreatePageInput) (model.PageDetail, error)
 	SaveRevision(context.Context, string, string, string, model.SaveRevisionInput) (model.Revision, error)
-	PublishRevision(context.Context, string, string, string) (model.PageDetail, error)
+	ApproveRevision(context.Context, string, string, string) (model.PageDetail, error)
+	HasQueuedScenarioDevelopment(context.Context) (bool, error)
+	ClaimScenarioDevelopment(context.Context) (model.DevelopmentTask, error)
+	CompleteScenarioDevelopment(context.Context, string, string) (model.ScenarioDevelopment, error)
+	BlockScenarioDevelopment(context.Context, string, string) (model.ScenarioDevelopment, error)
 
-	AddComment(context.Context, string, string, string, string, *string, *string, *string, string, bool) (model.Comment, error)
-	ResolveComment(context.Context, string, string, string) (model.Comment, error)
-	SetVote(context.Context, string, string, string, governance.VoteValue, string) (model.Vote, error)
+	AddComment(context.Context, string, string, string, string, *string, string) (model.Comment, error)
+	AddObjection(context.Context, string, string, string, string) (model.Objection, error)
+	ResolveObjection(context.Context, string, string, string) (model.Objection, error)
 
 	Retrieve(context.Context, string, string, bool, int) ([]model.RetrievedDocument, error)
 	ApplyAIChangeSet(context.Context, string, string, model.AssistantMutationContext, model.AIChangeSet) ([]model.Revision, error)
-	StageAssistantDraftProposal(context.Context, string, string, model.AssistantMutationContext, model.AIChangeSet) (model.AssistantDraftProposal, error)
-	ListAssistantDraftProposals(context.Context, string, string) ([]model.AssistantDraftProposal, error)
-	AssistantDraftProposal(context.Context, string, string, string) (model.AssistantDraftProposal, error)
-	ReviewAssistantDraftProposalOperation(context.Context, string, string, string, string, model.AssistantOperationReviewValue, string, bool) (model.AssistantDraftProposal, error)
-	PublishAssistantDraftProposal(context.Context, string, string, string) (model.AssistantDraftProposal, error)
-	DiscardAssistantDraftProposal(context.Context, string, string, string, string) (model.AssistantDraftProposal, error)
 
 	ListAssistantConversations(context.Context, string, string) ([]model.AssistantConversation, error)
 	CreateAssistantConversation(context.Context, string, string, model.AssistantMode) (model.AssistantConversation, error)

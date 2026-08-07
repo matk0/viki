@@ -39,12 +39,12 @@ export function useRouter(): RouterValue {
   return value
 }
 
-export function Link({ to, children, className, ariaLabel }: { to: string; children: ReactNode; className?: string; ariaLabel?: string }) {
+export function Link({ to, children, className, ariaLabel, title }: { to: string; children: ReactNode; className?: string; ariaLabel?: string; title?: string }) {
   const { navigate } = useRouter()
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
     navigate(to)
   }
-  return <a href={to} onClick={onClick} className={className} aria-label={ariaLabel}>{children}</a>
+  return <a href={to} onClick={onClick} className={className} aria-label={ariaLabel} title={title}>{children}</a>
 }

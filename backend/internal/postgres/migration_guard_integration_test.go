@@ -176,3 +176,197 @@ func TestMigrationsRemoveRevisionProvenanceData(t *testing.T) {
 		t.Fatalf("%d assistant proposals still contain provenance data", proposalCount)
 	}
 }
+
+func TestMigrationsRemoveCommentAnchorData(t *testing.T) {
+	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
+	}
+	ctx := context.Background()
+	repository, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var columnCount int
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'comments'
+		  AND column_name IN ('anchor_kind', 'anchor_id')
+	`).Scan(&columnCount); err != nil {
+		t.Fatal(err)
+	}
+	if columnCount != 0 {
+		t.Fatalf("%d comment anchor columns still exist after migrations", columnCount)
+	}
+}
+
+func TestMigrationsRemoveRevisionAliases(t *testing.T) {
+	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
+	}
+	ctx := context.Background()
+	repository, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var aliasColumnExists bool
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'revisions' AND column_name = 'aliases'
+		)
+	`).Scan(&aliasColumnExists); err != nil {
+		t.Fatal(err)
+	}
+	if aliasColumnExists {
+		t.Fatal("revisions.aliases still exists after migrations")
+	}
+
+	var proposalCount int
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT count(*) FROM assistant_draft_proposals
+		WHERE jsonb_path_exists(changeset, '$.operations[*].content.aliases')
+	`).Scan(&proposalCount); err != nil {
+		t.Fatal(err)
+	}
+	if proposalCount != 0 {
+		t.Fatalf("%d assistant proposals still contain aliases", proposalCount)
+	}
+}
+
+func TestMigrationsUseFirstClassObjectionStorage(t *testing.T) {
+	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
+	}
+	ctx := context.Background()
+	repository, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var objectionTable, voteTable bool
+	if err := repository.pool.QueryRow(ctx, `SELECT to_regclass('public.objections') IS NOT NULL, to_regclass('public.votes') IS NOT NULL`).Scan(&objectionTable, &voteTable); err != nil {
+		t.Fatal(err)
+	}
+	if !objectionTable || voteTable {
+		t.Fatalf("objections table=%v votes table=%v, want first-class objections without votes", objectionTable, voteTable)
+	}
+
+	var legacyCommentColumns int
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'comments'
+		  AND column_name IN ('blocking', 'resolved_at', 'resolved_by')
+	`).Scan(&legacyCommentColumns); err != nil {
+		t.Fatal(err)
+	}
+	if legacyCommentColumns != 0 {
+		t.Fatalf("comments retain %d objection-specific columns", legacyCommentColumns)
+	}
+}
+
+func TestMigrationsUseApprovedRevisionLifecycle(t *testing.T) {
+	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
+	}
+	ctx := context.Background()
+	repository, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var approvedColumns int
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND ((table_name = 'pages' AND column_name = 'approved_revision_id')
+		    OR (table_name = 'revisions' AND column_name = 'approved_at'))
+	`).Scan(&approvedColumns); err != nil {
+		t.Fatal(err)
+	}
+	if approvedColumns != 2 {
+		t.Fatalf("approved lifecycle columns = %d, want 2", approvedColumns)
+	}
+
+	var legacyColumns int
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND ((table_name = 'pages' AND column_name = 'accepted_revision_id')
+		    OR (table_name = 'revisions' AND column_name = 'accepted_at'))
+	`).Scan(&legacyColumns); err != nil {
+		t.Fatal(err)
+	}
+	if legacyColumns != 0 {
+		t.Fatalf("legacy accepted lifecycle columns = %d, want 0", legacyColumns)
+	}
+
+	var approvedStatusAllowed, acceptedStatusAllowed bool
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT
+		  pg_get_constraintdef(oid) LIKE '%approved%' AS approved,
+		  pg_get_constraintdef(oid) LIKE '%accepted%' AS accepted
+		FROM pg_constraint
+		WHERE conrelid = 'revisions'::regclass AND conname = 'revisions_status_check'
+	`).Scan(&approvedStatusAllowed, &acceptedStatusAllowed); err != nil {
+		t.Fatal(err)
+	}
+	if !approvedStatusAllowed || acceptedStatusAllowed {
+		t.Fatalf("revision status constraint: approved=%v accepted=%v", approvedStatusAllowed, acceptedStatusAllowed)
+	}
+
+	var currentRevisionIndexes int
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT count(*) FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND indexname IN ('revisions_one_draft_per_page_idx', 'revisions_one_approved_per_page_idx')
+	`).Scan(&currentRevisionIndexes); err != nil {
+		t.Fatal(err)
+	}
+	if currentRevisionIndexes != 2 {
+		t.Fatalf("current revision indexes = %d, want 2", currentRevisionIndexes)
+	}
+
+	var orphanedApprovedPages int
+	if err := repository.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pages AS page
+		WHERE page.approved_revision_id IS NULL
+		  AND EXISTS (
+		      SELECT 1 FROM revisions AS revision
+		      WHERE revision.page_id = page.id AND revision.status = 'approved'
+		  )
+	`).Scan(&orphanedApprovedPages); err != nil {
+		t.Fatal(err)
+	}
+	if orphanedApprovedPages != 0 {
+		t.Fatalf("orphaned pages with an approved revision = %d, want 0", orphanedApprovedPages)
+	}
+}

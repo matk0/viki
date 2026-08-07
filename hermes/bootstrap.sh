@@ -44,7 +44,8 @@ prepare_distribution() {
     fail_if_symlink "$distribution_dir"
     fail_if_symlink "$distribution_dir/plugins"
     fail_if_symlink "$distribution_dir/plugins/viki"
-    mkdir -p "$distribution_dir/plugins/viki"
+    fail_if_symlink "$distribution_dir/scripts"
+    mkdir -p "$distribution_dir/plugins/viki" "$distribution_dir/scripts"
 
     python3 "$VIKI_HERMES_ASSETS/render_config.py" \
         "$VIKI_HERMES_ASSETS/profiles/$template_name/config.yaml" \
@@ -63,6 +64,13 @@ prepare_distribution() {
             "$distribution_dir/plugins/viki/$plugin_file" \
             0640
     done
+
+	if [ -f "$VIKI_HERMES_ASSETS/profiles/$template_name/check_queue.py" ]; then
+		install_managed_file \
+			"$VIKI_HERMES_ASSETS/profiles/$template_name/check_queue.py" \
+			"$distribution_dir/scripts/check_queue.py" \
+			0750
+	fi
 
     printf '%s\n' "$distribution_dir"
 }
@@ -91,3 +99,4 @@ fail_if_symlink "$HERMES_HOME"
 mkdir -p "$HERMES_HOME/profiles" "$HERMES_HOME/.viki-distributions"
 bootstrap_profile viki-qa qa
 bootstrap_profile viki-edit edit
+bootstrap_profile viki-developer developer

@@ -15,6 +15,83 @@ import (
 	"viki/internal/store"
 )
 
+func TestScenarioCannotBeApprovedUntilParentFeatureIsApproved(t *testing.T) {
+	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
+	}
+	ctx := context.Background()
+	repository, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close(ctx)
+
+	organizationID, userID := uuid.NewString(), uuid.NewString()
+	if _, err := connection.Exec(ctx, `INSERT INTO organizations(id, name) VALUES ($1, 'Scenario approval gate')`, organizationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Exec(ctx, `INSERT INTO users(id, organization_id, email, display_name, password_hash) VALUES ($1, $2, $3, 'Reviewer', 'unused')`, userID, organizationID, userID+"@viki.test"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id = $1`, organizationID)
+		_, _ = connection.Exec(ctx, `UPDATE pages SET approved_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
+		_, _ = connection.Exec(ctx, `DELETE FROM pages WHERE organization_id = $1`, organizationID)
+		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
+		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
+	}()
+
+	feature, err := repository.CreatePage(ctx, organizationID, userID, model.CreatePageInput{
+		Kind: model.PageFeature,
+		Slug: "draft-feature-" + uuid.NewString(),
+		Content: model.RevisionContent{
+			Title: "Draft feature", Steps: []model.Step{}, References: []model.PageReference{},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, err := repository.CreatePage(ctx, organizationID, userID, model.CreatePageInput{
+		Kind:     model.PageScenario,
+		ParentID: &feature.Page.ID,
+		Slug:     "draft-scenario-" + uuid.NewString(),
+		Content: model.RevisionContent{
+			Title: "Draft scenario", References: []model.PageReference{},
+			Steps: []model.Step{
+				{Keyword: model.KeywordGiven, Text: "a customer exists"},
+				{Keyword: model.KeywordWhen, Text: "the customer acts"},
+				{Keyword: model.KeywordThen, Text: "the result is recorded"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := repository.ApproveRevision(ctx, organizationID, userID, scenario.DraftRevision.ID); !errors.Is(err, governance.ErrParentFeatureNotApproved) {
+		t.Fatalf("approve scenario beneath draft feature error = %v, want parent feature approval error", err)
+	}
+	if _, err := repository.ApproveRevision(ctx, organizationID, userID, feature.DraftRevision.ID); err != nil {
+		t.Fatalf("approve parent feature: %v", err)
+	}
+	approvedScenario, err := repository.ApproveRevision(ctx, organizationID, userID, scenario.DraftRevision.ID)
+	if err != nil {
+		t.Fatalf("approve scenario beneath approved feature: %v", err)
+	}
+	if approvedScenario.ApprovedRevision == nil || approvedScenario.ApprovedRevision.ID != scenario.DraftRevision.ID {
+		t.Fatalf("approved scenario = %+v, want scenario revision %s", approvedScenario, scenario.DraftRevision.ID)
+	}
+}
+
 func TestRevisionGovernanceIsolationAndAudit(t *testing.T) {
 	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -46,15 +123,19 @@ func TestRevisionGovernanceIsolationAndAudit(t *testing.T) {
 	defer func() {
 		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id IN ($1, $2)`, organizationID, otherOrganizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM chats WHERE organization_id IN ($1, $2)`, organizationID, otherOrganizationID)
-		_, _ = connection.Exec(ctx, `UPDATE pages SET accepted_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id IN ($1, $2)`, organizationID, otherOrganizationID)
+		_, _ = connection.Exec(ctx, `UPDATE pages SET approved_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id IN ($1, $2)`, organizationID, otherOrganizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM pages WHERE organization_id IN ($1, $2)`, organizationID, otherOrganizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id IN ($1, $2)`, organizationID, otherOrganizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id IN ($1, $2)`, organizationID, otherOrganizationID)
 	}()
 
 	noun := model.ConceptNoun
-	content := model.RevisionContent{Title: "Zmluva", BodyMD: "Publikovaný obsah", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}}
-	detail, err := repository.CreatePage(ctx, organizationID, userID, model.CreatePageInput{Kind: model.PageConcept, ConceptKind: &noun, Slug: "zmluva-integration", Content: content}, model.RevisionAccepted)
+	content := model.RevisionContent{Title: "Zmluva", BodyMD: "Schválený obsah", Steps: []model.Step{}, References: []model.PageReference{}}
+	detail, err := repository.CreatePage(ctx, organizationID, userID, model.CreatePageInput{Kind: model.PageConcept, ConceptKind: &noun, Slug: "zmluva-integration", Content: content})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err = repository.ApproveRevision(ctx, organizationID, userID, detail.DraftRevision.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,38 +144,38 @@ func TestRevisionGovernanceIsolationAndAudit(t *testing.T) {
 	}
 
 	content.BodyMD = "Rozpracovaná náhrada"
-	draft, err := repository.SaveRevision(ctx, organizationID, userID, detail.Page.ID, model.SaveRevisionInput{BaseRevisionID: detail.AcceptedRevision.ID, Content: content})
+	draft, err := repository.SaveRevision(ctx, organizationID, userID, detail.Page.ID, model.SaveRevisionInput{BaseRevisionID: detail.ApprovedRevision.ID, Content: content})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.SaveRevision(ctx, organizationID, userID, detail.Page.ID, model.SaveRevisionInput{BaseRevisionID: detail.AcceptedRevision.ID, Content: content}); !errors.Is(err, store.ErrConflict) {
+	if _, err := repository.SaveRevision(ctx, organizationID, userID, detail.Page.ID, model.SaveRevisionInput{BaseRevisionID: detail.ApprovedRevision.ID, Content: content}); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("stale save error = %v, want conflict", err)
 	}
-	vote, err := repository.SetVote(ctx, organizationID, userID, draft.ID, governance.VoteReject, "Treba spresniť pravidlo")
+	objection, err := repository.AddObjection(ctx, organizationID, userID, draft.ID, "Treba spresniť pravidlo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vote.CommentID == nil {
-		t.Fatal("reject vote did not create a blocking thread")
+	if objection.ID == "" {
+		t.Fatal("objection was not created")
 	}
-	if _, err := repository.PublishRevision(ctx, organizationID, userID, draft.ID); !errors.Is(err, governance.ErrUnresolvedRejection) {
-		t.Fatalf("publish with blocker error = %v, want blocked", err)
+	if _, err := repository.ApproveRevision(ctx, organizationID, userID, draft.ID); !errors.Is(err, governance.ErrUnresolvedObjection) {
+		t.Fatalf("approval with blocker error = %v, want blocked", err)
 	}
-	if _, err := repository.ResolveComment(ctx, organizationID, userID, *vote.CommentID); err != nil {
+	if _, err := repository.ResolveObjection(ctx, organizationID, userID, objection.ID); err != nil {
 		t.Fatal(err)
 	}
-	published, err := repository.PublishRevision(ctx, organizationID, userID, draft.ID)
+	approved, err := repository.ApproveRevision(ctx, organizationID, userID, draft.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if published.AcceptedRevision == nil || published.AcceptedRevision.ID != draft.ID || published.DraftRevision != nil {
-		t.Fatalf("unexpected publication state: %+v", published)
+	if approved.ApprovedRevision == nil || approved.ApprovedRevision.ID != draft.ID || approved.DraftRevision != nil {
+		t.Fatalf("unexpected approval state: %+v", approved)
 	}
 	events, err := repository.ListAudit(ctx, organizationID, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wanted := map[string]bool{"page.created": false, "revision.saved": false, "vote.recorded": false, "comment.resolved": false, "revision.published": false}
+	wanted := map[string]bool{"page.created": false, "revision.saved": false, "objection.created": false, "objection.resolved": false, "revision.approved": false}
 	for _, event := range events {
 		if _, ok := wanted[event.Action]; ok {
 			wanted[event.Action] = true
@@ -154,76 +235,6 @@ func TestListAuditExcludesAuthenticationEvents(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Action != "page.created" {
 		t.Fatalf("audit events = %+v, want only page.created", events)
-	}
-}
-
-func TestListAssistantDraftProposalsReturnsOnlyPendingOwnerProposals(t *testing.T) {
-	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
-	}
-	ctx := context.Background()
-	repository, err := postgres.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repository.Close()
-	if err := repository.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	connection, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close(ctx)
-
-	organizationID, userID, otherUserID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	conversationID, otherConversationID := uuid.NewString(), uuid.NewString()
-	pendingID, publishedID, otherPendingID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	if _, err := connection.Exec(ctx, `INSERT INTO organizations(id, name) VALUES ($1, 'Draft list test')`, organizationID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := connection.Exec(ctx, `
-		INSERT INTO users(id, organization_id, email, display_name, password_hash)
-		VALUES ($1, $3, $4, 'Owner', 'unused'), ($2, $3, $5, 'Other owner', 'unused')
-	`, userID, otherUserID, organizationID, userID+"@viki.test", otherUserID+"@viki.test"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := connection.Exec(ctx, `
-		INSERT INTO assistant_conversations(id, organization_id, user_id)
-		VALUES ($1, $3, $4), ($2, $3, $5)
-	`, conversationID, otherConversationID, organizationID, userID, otherUserID); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_draft_proposals WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_conversations WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
-	}()
-	if _, err := connection.Exec(ctx, `
-		INSERT INTO assistant_draft_proposals(id, organization_id, user_id, conversation_id, turn_id, summary, changeset, status, created_at)
-		VALUES
-			($1, $4, $5, $6, $1, 'Pending', '{"summary":"Pending","operations":[]}', 'awaiting_approval', now() - interval '1 hour'),
-			($2, $4, $5, $6, $2, 'Published', '{"summary":"Published","operations":[]}', 'published', now()),
-			($3, $4, $7, $8, $3, 'Other pending', '{"summary":"Other pending","operations":[]}', 'awaiting_approval', now())
-	`, pendingID, publishedID, otherPendingID, organizationID, userID, conversationID, otherUserID, otherConversationID); err != nil {
-		t.Fatal(err)
-	}
-
-	proposals, err := repository.ListAssistantDraftProposals(ctx, organizationID, userID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(proposals) != 1 || proposals[0].ID != pendingID {
-		t.Fatalf("owner proposals = %+v, want only pending proposal", proposals)
-	}
-	otherProposals, err := repository.ListAssistantDraftProposals(ctx, organizationID, otherUserID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(otherProposals) != 1 || otherProposals[0].ID != otherPendingID {
-		t.Fatalf("other owner proposals = %+v, want only own pending proposal", otherProposals)
 	}
 }
 
@@ -322,23 +333,27 @@ func TestAIChangeSetRejectsMismatchedRevisionMetadataAtomically(t *testing.T) {
 	}
 	defer func() {
 		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `UPDATE pages SET accepted_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
+		_, _ = connection.Exec(ctx, `UPDATE pages SET approved_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM pages WHERE organization_id = $1`, organizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
 	}()
 
 	noun := model.ConceptNoun
-	content := model.RevisionContent{Title: "Zmluva", BodyMD: "Obsah", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}}
+	content := model.RevisionContent{Title: "Zmluva", BodyMD: "Obsah", Steps: []model.Step{}, References: []model.PageReference{}}
 	detail, err := repository.CreatePage(ctx, organizationID, userID, model.CreatePageInput{
 		Kind: model.PageConcept, ConceptKind: &noun, Slug: "zmluva-changeset", Content: content,
-	}, model.RevisionAccepted)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err = repository.ApproveRevision(ctx, organizationID, userID, detail.DraftRevision.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	changeSet := model.AIChangeSet{Summary: "invalid metadata", Operations: []model.AIChangeOperation{
-		{Operation: "create", ClientKey: "new", Kind: model.PageFeature, Slug: "should-rollback", Content: model.RevisionContent{Title: "Rollback", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}}},
-		{Operation: "revise", PageID: &detail.Page.ID, BaseRevisionID: &detail.AcceptedRevision.ID, Kind: model.PageFeature, Slug: detail.Page.Slug, Content: content},
+		{Operation: "create", ClientKey: "new", Kind: model.PageFeature, Slug: "should-rollback", Content: model.RevisionContent{Title: "Rollback", Steps: []model.Step{}, References: []model.PageReference{}}},
+		{Operation: "revise", PageID: &detail.Page.ID, BaseRevisionID: &detail.ApprovedRevision.ID, Kind: model.PageFeature, Slug: detail.Page.Slug, Content: content},
 	}}
 	_, err = repository.ApplyAIChangeSet(ctx, organizationID, userID, model.AssistantMutationContext{
 		ConversationID: uuid.NewString(), TurnID: uuid.NewString(), HermesProfile: "viki-edit", HermesSessionID: "stored-edit",
@@ -384,9 +399,8 @@ func TestAssistantChangeSetCreatesDraftsAndAttributesTheInitiatingUser(t *testin
 	}
 	defer func() {
 		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_draft_proposals WHERE organization_id = $1`, organizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM assistant_conversations WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `UPDATE pages SET accepted_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
+		_, _ = connection.Exec(ctx, `UPDATE pages SET approved_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM pages WHERE organization_id = $1`, organizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
 		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
@@ -396,25 +410,16 @@ func TestAssistantChangeSetCreatesDraftsAndAttributesTheInitiatingUser(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalidTurnID := uuid.NewString()
-	if _, err := repository.StageAssistantDraftProposal(ctx, organizationID, userID, model.AssistantMutationContext{
-		ConversationID: conversation.ID, TurnID: invalidTurnID, HermesProfile: "viki-edit", HermesSessionID: "stored-edit-session",
+	if _, err := repository.ApplyAIChangeSet(ctx, organizationID, userID, model.AssistantMutationContext{
+		ConversationID: conversation.ID, TurnID: uuid.NewString(), HermesProfile: "viki-edit", HermesSessionID: "stored-edit-session",
 	}, model.AIChangeSet{Summary: "Neplatný scenár", Operations: []model.AIChangeOperation{{
 		Operation: "create", ClientKey: "invalid-feature", Kind: model.PageFeature,
 		Slug: "neplatny-scenar", Content: model.RevisionContent{
-			Title: "Neplatný scenár", Aliases: []string{},
-			Steps:      []model.Step{{Keyword: model.KeywordGiven, Text: "zákazník chce podpísať zmluvu"}},
+			Title: "Neplatný scenár", Steps: []model.Step{{Keyword: model.KeywordGiven, Text: "zákazník chce podpísať zmluvu"}},
 			References: []model.PageReference{},
 		},
 	}}}); err == nil {
-		t.Fatal("assistant staged a feature containing BDD steps")
-	}
-	var invalidProposalCount int
-	if err := connection.QueryRow(ctx, `SELECT count(*) FROM assistant_draft_proposals WHERE id = $1`, invalidTurnID).Scan(&invalidProposalCount); err != nil {
-		t.Fatal(err)
-	}
-	if invalidProposalCount != 0 {
-		t.Fatalf("invalid proposal was persisted: count=%d", invalidProposalCount)
+		t.Fatal("assistant applied a feature containing BDD steps")
 	}
 	turnID := uuid.NewString()
 	noun := model.ConceptNoun
@@ -425,7 +430,7 @@ func TestAssistantChangeSetCreatesDraftsAndAttributesTheInitiatingUser(t *testin
 		HermesSessionID: "stored-edit-session",
 	}, model.AIChangeSet{Summary: "create draft", Operations: []model.AIChangeOperation{{
 		Operation: "create", ClientKey: "contract", Kind: model.PageConcept, ConceptKind: &noun,
-		Slug: "assistant-contract", Content: model.RevisionContent{Title: "Zmluva", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
+		Slug: "assistant-contract", Content: model.RevisionContent{Title: "Zmluva", Steps: []model.Step{}, References: []model.PageReference{}},
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -437,7 +442,7 @@ func TestAssistantChangeSetCreatesDraftsAndAttributesTheInitiatingUser(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.AcceptedRevision != nil || detail.DraftRevision == nil || detail.DraftRevision.ID != revisions[0].ID {
+	if detail.ApprovedRevision != nil || detail.DraftRevision == nil || detail.DraftRevision.ID != revisions[0].ID {
 		t.Fatalf("assistant change was not draft-only: %+v", detail)
 	}
 
@@ -452,381 +457,5 @@ func TestAssistantChangeSetCreatesDraftsAndAttributesTheInitiatingUser(t *testin
 	}
 	if action != "assistant.drafts_created" || actorID != userID || entityID != conversation.ID || recordedTurn != turnID || profile != "viki-edit" || sessionID != "stored-edit-session" {
 		t.Fatalf("unexpected assistant audit attribution: action=%q actor=%q entity=%q turn=%q profile=%q session=%q", action, actorID, entityID, recordedTurn, profile, sessionID)
-	}
-}
-
-func TestAssistantDraftProposalPublishesAcceptedRevisionsOnlyAfterApproval(t *testing.T) {
-	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
-	}
-	ctx := context.Background()
-	repository, err := postgres.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repository.Close()
-	if err := repository.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	connection, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close(ctx)
-
-	organizationID, userID := uuid.NewString(), uuid.NewString()
-	if _, err := connection.Exec(ctx, `INSERT INTO organizations(id, name) VALUES ($1, 'Proposal publication')`, organizationID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := connection.Exec(ctx, `INSERT INTO users(id, organization_id, email, display_name, password_hash) VALUES ($1, $2, $3, 'Approver', 'unused')`, userID, organizationID, userID+"@viki.test"); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_draft_proposals WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_conversations WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `UPDATE pages SET accepted_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM pages WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
-	}()
-
-	conversation, err := repository.CreateAssistantConversation(ctx, organizationID, userID, model.AssistantEdit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	turnID := uuid.NewString()
-	noun := model.ConceptNoun
-	proposal, err := repository.StageAssistantDraftProposal(ctx, organizationID, userID, model.AssistantMutationContext{
-		ConversationID: conversation.ID, TurnID: turnID, HermesProfile: "viki-edit", HermesSessionID: "stored-edit-session",
-	}, model.AIChangeSet{Summary: "Pridať koncept zákazník", Operations: []model.AIChangeOperation{{
-		Operation: "create", ClientKey: "customer", Kind: model.PageConcept, ConceptKind: &noun,
-		Slug: "zakaznik", Content: model.RevisionContent{Title: "Zákazník", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proposal.ID != turnID || proposal.Status != model.AssistantProposalAwaitingApproval {
-		t.Fatalf("unexpected staged proposal: %+v", proposal)
-	}
-	pages, err := repository.ListPages(ctx, organizationID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pages) != 0 {
-		t.Fatalf("proposal created wiki records before approval: %+v", pages)
-	}
-
-	published, err := repository.PublishAssistantDraftProposal(ctx, organizationID, userID, proposal.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if published.Status != model.AssistantProposalPublished || len(published.PublishedRevisions) != 1 || published.PublishedRevisions[0].Status != model.RevisionAccepted {
-		t.Fatalf("unexpected published proposal: %+v", published)
-	}
-	detail, err := repository.PageDetail(ctx, organizationID, published.PublishedRevisions[0].PageID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if detail.AcceptedRevision == nil || detail.DraftRevision != nil || detail.AcceptedRevision.ID != published.PublishedRevisions[0].ID {
-		t.Fatalf("approved proposal did not publish accepted truth: %+v", detail)
-	}
-}
-
-func TestAssistantDraftProposalReviewsOperationsAndPublishesOnlyDependencySafeApprovals(t *testing.T) {
-	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
-	}
-	ctx := context.Background()
-	repository, err := postgres.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repository.Close()
-	if err := repository.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	connection, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close(ctx)
-
-	organizationID, userID := uuid.NewString(), uuid.NewString()
-	if _, err := connection.Exec(ctx, `INSERT INTO organizations(id, name) VALUES ($1, 'Individual proposal review')`, organizationID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := connection.Exec(ctx, `INSERT INTO users(id, organization_id, email, display_name, password_hash) VALUES ($1, $2, $3, 'Reviewer', 'unused')`, userID, organizationID, userID+"@viki.test"); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_draft_proposals WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_conversations WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `UPDATE pages SET accepted_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM pages WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
-	}()
-
-	conversation, err := repository.CreateAssistantConversation(ctx, organizationID, userID, model.AssistantEdit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	noun := model.ConceptNoun
-	proposal, err := repository.StageAssistantDraftProposal(ctx, organizationID, userID, model.AssistantMutationContext{
-		ConversationID: conversation.ID, TurnID: uuid.NewString(), HermesProfile: "viki-edit", HermesSessionID: "review-session",
-	}, model.AIChangeSet{Summary: "Pridať scenár a koncept", Operations: []model.AIChangeOperation{
-		{
-			Operation: "create", ClientKey: "contract", Kind: model.PageConcept, ConceptKind: &noun,
-			Slug: "zmluva", Content: model.RevisionContent{Title: "Zmluva", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-		},
-		{
-			Operation: "create", ClientKey: "sign-contract", Kind: model.PageFeature, Slug: "podpisanie-zmluvy",
-			Content: model.RevisionContent{Title: "Podpísanie zmluvy", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{{TargetClientKey: "contract", TargetTitle: "Zmluva", Relation: "používa"}}},
-		},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	reviewed, err := repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, proposal.ID, "sign-contract", model.AssistantReviewApprove, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reviewed.Status != model.AssistantProposalAwaitingApproval || len(reviewed.OperationReviews) != 1 {
-		t.Fatalf("first review = %+v, want one pending decision", reviewed)
-	}
-
-	if _, err := repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, proposal.ID, "contract", model.AssistantReviewReject, "Zmluva nie je správne definovaná.", false); !errors.Is(err, governance.ErrRejectedProposalDependency) {
-		t.Fatalf("dependency rejection error = %v, want %v", err, governance.ErrRejectedProposalDependency)
-	}
-
-	if _, err := repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, proposal.ID, "sign-contract", model.AssistantReviewReject, "Scenár bez zmluvy nemožno publikovať.", false); err != nil {
-		t.Fatal(err)
-	}
-	published, err := repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, proposal.ID, "contract", model.AssistantReviewApprove, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if published.Status != model.AssistantProposalPublished || len(published.OperationReviews) != 2 || len(published.PublishedRevisions) != 1 {
-		t.Fatalf("final review = %+v, want one published concept and two decisions", published)
-	}
-	if published.PublishedRevisions[0].Title != "Zmluva" || published.PublishedRevisions[0].Status != model.RevisionAccepted {
-		t.Fatalf("published revision = %+v", published.PublishedRevisions[0])
-	}
-	pages, err := repository.ListPages(ctx, organizationID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pages) != 1 || pages[0].Kind != model.PageConcept {
-		t.Fatalf("published pages = %+v, want only approved concept", pages)
-	}
-}
-
-func TestAssistantDraftProposalFeatureReviewCascadesAcrossItsWholeTree(t *testing.T) {
-	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
-	}
-	ctx := context.Background()
-	repository, err := postgres.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repository.Close()
-	if err := repository.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	connection, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close(ctx)
-
-	organizationID, userID := uuid.NewString(), uuid.NewString()
-	if _, err := connection.Exec(ctx, `INSERT INTO organizations(id, name) VALUES ($1, 'Feature tree review')`, organizationID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := connection.Exec(ctx, `INSERT INTO users(id, organization_id, email, display_name, password_hash) VALUES ($1, $2, $3, 'Reviewer', 'unused')`, userID, organizationID, userID+"@viki.test"); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_draft_proposals WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_conversations WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `UPDATE pages SET accepted_revision_id = NULL, latest_draft_revision_id = NULL WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM pages WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
-	}()
-
-	conversation, err := repository.CreateAssistantConversation(ctx, organizationID, userID, model.AssistantEdit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	noun := model.ConceptNoun
-	stageTree := func(suffix string) model.AssistantDraftProposal {
-		t.Helper()
-		proposal, stageErr := repository.StageAssistantDraftProposal(ctx, organizationID, userID, model.AssistantMutationContext{
-			ConversationID: conversation.ID, TurnID: uuid.NewString(), HermesProfile: "viki-edit", HermesSessionID: "tree-review-session",
-		}, model.AIChangeSet{Summary: "Pridať celý strom funkcie", Operations: []model.AIChangeOperation{
-			{
-				Operation: "create", ClientKey: "contract-" + suffix, Kind: model.PageConcept, ConceptKind: &noun, Slug: "zmluva-" + suffix,
-				Content: model.RevisionContent{Title: "Zmluva " + suffix, Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-			},
-			{
-				Operation: "create", ClientKey: "unrelated-" + suffix, Kind: model.PageConcept, ConceptKind: &noun, Slug: "nesuvisiaci-" + suffix,
-				Content: model.RevisionContent{Title: "Nesúvisiaci koncept " + suffix, Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-			},
-			{
-				Operation: "create", ClientKey: "reservation-" + suffix, Kind: model.PageFeature, Slug: "rezervacia-" + suffix,
-				Content: model.RevisionContent{Title: "Rezervácia " + suffix, Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{{TargetClientKey: "contract-" + suffix, TargetTitle: "Zmluva " + suffix, Relation: "vytvára"}}},
-			},
-			{
-				Operation: "create", ClientKey: "successful-reservation-" + suffix, Kind: model.PageScenario, ParentClientKey: "reservation-" + suffix, Slug: "uspesna-rezervacia-" + suffix,
-				Content: model.RevisionContent{
-					Title: "Úspešná rezervácia " + suffix, Aliases: []string{},
-					Steps:      []model.Step{{Keyword: model.KeywordGiven, Text: "zákazník má údaje"}, {Keyword: model.KeywordWhen, Text: "odošle rezerváciu"}, {Keyword: model.KeywordThen, Text: "systém pripraví zmluvu"}},
-					References: []model.PageReference{{TargetClientKey: "contract-" + suffix, TargetTitle: "Zmluva " + suffix, Relation: "výstup"}},
-				},
-			},
-		}})
-		if stageErr != nil {
-			t.Fatal(stageErr)
-		}
-		return proposal
-	}
-
-	approvedTree := stageTree("approved")
-	reviewed, err := repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, approvedTree.ID, "reservation-approved", model.AssistantReviewApprove, "", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reviewed.Status != model.AssistantProposalAwaitingApproval || len(reviewed.OperationReviews) != 3 {
-		t.Fatalf("approved tree review = %+v, want three reviewed tree operations and one unrelated operation", reviewed)
-	}
-	for _, key := range []string{"contract-approved", "reservation-approved", "successful-reservation-approved"} {
-		if !assistantReviewHasValue(reviewed.OperationReviews, key, model.AssistantReviewApprove) {
-			t.Errorf("tree operation %q was not approved: %+v", key, reviewed.OperationReviews)
-		}
-	}
-	if assistantReviewHasValue(reviewed.OperationReviews, "unrelated-approved", model.AssistantReviewApprove) {
-		t.Fatal("feature review cascaded into an unrelated operation")
-	}
-	published, err := repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, approvedTree.ID, "unrelated-approved", model.AssistantReviewReject, "Nesúvisí s procesom.", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if published.Status != model.AssistantProposalPublished || len(published.PublishedRevisions) != 3 {
-		t.Fatalf("approved tree publication = %+v, want three accepted revisions", published)
-	}
-
-	rejectedTree := stageTree("rejected")
-	reviewed, err = repository.ReviewAssistantDraftProposalOperation(ctx, organizationID, userID, rejectedTree.ID, "reservation-rejected", model.AssistantReviewReject, "Celý proces treba prepracovať.", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(reviewed.OperationReviews) != 3 {
-		t.Fatalf("rejected tree review = %+v, want three reviewed tree operations", reviewed)
-	}
-	for _, key := range []string{"contract-rejected", "reservation-rejected", "successful-reservation-rejected"} {
-		if !assistantReviewHasValue(reviewed.OperationReviews, key, model.AssistantReviewReject) {
-			t.Errorf("tree operation %q was not rejected: %+v", key, reviewed.OperationReviews)
-		}
-	}
-}
-
-func assistantReviewHasValue(reviews []model.AssistantOperationReview, operationKey string, value model.AssistantOperationReviewValue) bool {
-	for _, review := range reviews {
-		if review.OperationKey == operationKey && review.Value == value {
-			return true
-		}
-	}
-	return false
-}
-
-func TestAssistantDraftProposalRejectionStoresRequiredReasonAndAudit(t *testing.T) {
-	databaseURL := os.Getenv("VIKI_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set VIKI_TEST_DATABASE_URL to run PostgreSQL integration tests")
-	}
-	ctx := context.Background()
-	repository, err := postgres.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repository.Close()
-	if err := repository.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	connection, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close(ctx)
-
-	organizationID, userID := uuid.NewString(), uuid.NewString()
-	if _, err := connection.Exec(ctx, `INSERT INTO organizations(id, name) VALUES ($1, 'Proposal rejection')`, organizationID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := connection.Exec(ctx, `INSERT INTO users(id, organization_id, email, display_name, password_hash) VALUES ($1, $2, $3, 'Reviewer', 'unused')`, userID, organizationID, userID+"@viki.test"); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_, _ = connection.Exec(ctx, `DELETE FROM audit_events WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_draft_proposals WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM assistant_conversations WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, organizationID)
-		_, _ = connection.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, organizationID)
-	}()
-
-	conversation, err := repository.CreateAssistantConversation(ctx, organizationID, userID, model.AssistantEdit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	turnID := uuid.NewString()
-	noun := model.ConceptNoun
-	proposal, err := repository.StageAssistantDraftProposal(ctx, organizationID, userID, model.AssistantMutationContext{
-		ConversationID: conversation.ID, TurnID: turnID, HermesProfile: "viki-edit", HermesSessionID: "stored-edit-session",
-	}, model.AIChangeSet{Summary: "Pridať koncept cena", Operations: []model.AIChangeOperation{{
-		Operation: "create", ClientKey: "price", Kind: model.PageConcept, ConceptKind: &noun,
-		Slug: "cena", Content: model.RevisionContent{Title: "Cena", Aliases: []string{}, Steps: []model.Step{}, References: []model.PageReference{}},
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repository.DiscardAssistantDraftProposal(ctx, organizationID, userID, proposal.ID, "   "); !errors.Is(err, governance.ErrRejectionReasonRequired) {
-		t.Fatalf("blank rejection reason error = %v, want required reason", err)
-	}
-
-	reason := "Chýba presný spôsob výpočtu ceny."
-	rejected, err := repository.DiscardAssistantDraftProposal(ctx, organizationID, userID, proposal.ID, reason)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rejected.Status != model.AssistantProposalDiscarded || rejected.RejectionReason != reason {
-		t.Fatalf("unexpected rejected proposal: %+v", rejected)
-	}
-	pages, err := repository.ListPages(ctx, organizationID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pages) != 0 {
-		t.Fatalf("rejection created wiki records: %+v", pages)
-	}
-
-	var actorID, recordedReason string
-	if err := connection.QueryRow(ctx, `
-		SELECT actor_id::text, metadata->>'reason'
-		FROM audit_events
-		WHERE organization_id = $1 AND action = 'assistant.proposal_discarded' AND entity_id = $2
-	`, organizationID, proposal.ID).Scan(&actorID, &recordedReason); err != nil {
-		t.Fatal(err)
-	}
-	if actorID != userID || recordedReason != reason {
-		t.Fatalf("unexpected rejection audit: actor=%q reason=%q", actorID, recordedReason)
 	}
 }

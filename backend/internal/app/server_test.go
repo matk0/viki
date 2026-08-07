@@ -1,9 +1,7 @@
 package app_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,81 +17,27 @@ import (
 	"viki/internal/store"
 )
 
-type voteRepository struct {
+type testRepository struct {
 	store.Repository
 	session model.Session
 }
 
-type proposalRepository struct {
-	store.Repository
-	session         model.Session
-	proposal        model.AssistantDraftProposal
-	discarded       bool
-	rejectionReason string
-	reviewedKey     string
-	reviewedValue   model.AssistantOperationReviewValue
-	reviewedReason  string
-	reviewedCascade bool
-}
-
-func (r *proposalRepository) SessionByHash(context.Context, []byte) (model.Session, error) {
+func (r *testRepository) SessionByHash(context.Context, []byte) (model.Session, error) {
 	return r.session, nil
 }
 
-func (r *proposalRepository) AssistantDraftProposal(context.Context, string, string, string) (model.AssistantDraftProposal, error) {
-	return r.proposal, nil
-}
-
-func (r *proposalRepository) PublishAssistantDraftProposal(context.Context, string, string, string) (model.AssistantDraftProposal, error) {
-	r.proposal.Status = model.AssistantProposalPublished
-	return r.proposal, nil
-}
-
-func (r *proposalRepository) ReviewAssistantDraftProposalOperation(
-	_ context.Context,
-	_, _, _, operationKey string,
-	value model.AssistantOperationReviewValue,
-	reason string,
-	cascadeDescendants bool,
-) (model.AssistantDraftProposal, error) {
-	r.reviewedKey = operationKey
-	r.reviewedValue = value
-	r.reviewedReason = reason
-	r.reviewedCascade = cascadeDescendants
-	r.proposal.OperationReviews = []model.AssistantOperationReview{{
-		OperationKey: operationKey,
-		Value:        value,
-		Reason:       reason,
-		ReviewedAt:   time.Now(),
-	}}
-	return r.proposal, nil
-}
-
-func (r *proposalRepository) DiscardAssistantDraftProposal(_ context.Context, _, _, _, reason string) (model.AssistantDraftProposal, error) {
-	r.discarded = true
-	r.rejectionReason = reason
-	r.proposal.Status = model.AssistantProposalDiscarded
-	r.proposal.RejectionReason = reason
-	return r.proposal, nil
-}
-
-func (r *voteRepository) SessionByHash(context.Context, []byte) (model.Session, error) {
-	return r.session, nil
-}
-
-func TestRejectVoteWithoutReasonIsRejectedAtHTTPBoundary(t *testing.T) {
+func TestLegacyVoteEndpointIsUnavailable(t *testing.T) {
 	t.Parallel()
 
 	csrf := "csrf-test-token"
-	repository := &voteRepository{session: model.Session{
+	repository := &testRepository{session: model.Session{
 		User:           model.User{ID: "00000000-0000-4000-8000-000000000011", Email: "matej@matejlukasik.com"},
 		OrganizationID: "00000000-0000-4000-8000-000000000001",
 		CSRFHash:       security.HashToken(csrf),
 		Expires:        time.Now().Add(time.Hour),
 	}}
 	handler := app.New(repository, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	body, _ := json.Marshal(map[string]string{"value": "reject", "reason": ""})
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/revisions/00000000-0000-4000-8000-000000000099/vote", bytes.NewReader(body))
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/revisions/00000000-0000-4000-8000-000000000099/vote", nil)
 	request.AddCookie(&http.Cookie{Name: "viki_session", Value: "opaque-session"})
 	request.AddCookie(&http.Cookie{Name: "viki_csrf", Value: csrf})
 	request.Header.Set("X-CSRF-Token", csrf)
@@ -101,15 +45,15 @@ func TestRejectVoteWithoutReasonIsRejectedAtHTTPBoundary(t *testing.T) {
 
 	handler.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnprocessableEntity, recorder.Body.String())
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusNotFound, recorder.Body.String())
 	}
 }
 
 func TestSecurityHeadersAllowSameOriginVoiceInput(t *testing.T) {
 	t.Parallel()
 
-	handler := app.New(&voteRepository{}, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	handler := app.New(&testRepository{}, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	recorder := httptest.NewRecorder()
 
@@ -123,131 +67,38 @@ func TestSecurityHeadersAllowSameOriginVoiceInput(t *testing.T) {
 	}
 }
 
-func TestDraftProposalCanBeReadAndApprovedThroughAuthenticatedAPI(t *testing.T) {
+func TestLegacyDraftProposalRoutesAreUnavailableToAuthenticatedUsers(t *testing.T) {
 	t.Parallel()
 
-	csrf := "proposal-csrf"
+	csrf := "legacy-proposal-csrf"
 	proposalID := "00000000-0000-4000-8000-000000000088"
-	repository := &proposalRepository{
-		session: model.Session{
-			User:           model.User{ID: "00000000-0000-4000-8000-000000000011", Email: "matej@matejlukasik.com"},
-			OrganizationID: "00000000-0000-4000-8000-000000000001", CSRFHash: security.HashToken(csrf), Expires: time.Now().Add(time.Hour),
-		},
-		proposal: model.AssistantDraftProposal{
-			ID: proposalID, TurnID: proposalID, Summary: "Pridať zákazníka", Status: model.AssistantProposalAwaitingApproval,
-			Operations: []model.AIChangeOperation{{Operation: "create", Kind: model.PageFeature, Slug: "nova-funkcia", Content: model.RevisionContent{Title: "Nová funkcia"}}},
-		},
-	}
+	repository := &testRepository{session: model.Session{
+		User:           model.User{ID: "00000000-0000-4000-8000-000000000011", Email: "matej@matejlukasik.com"},
+		OrganizationID: "00000000-0000-4000-8000-000000000001", CSRFHash: security.HashToken(csrf), Expires: time.Now().Add(time.Hour),
+	}}
 	handler := app.New(repository, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	read := httptest.NewRequest(http.MethodGet, "/api/v1/draft-proposals/"+proposalID, nil)
-	read.AddCookie(&http.Cookie{Name: "viki_session", Value: "opaque-session"})
-	readRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(readRecorder, read)
-	if readRecorder.Code != http.StatusOK || !strings.Contains(readRecorder.Body.String(), "awaiting_approval") {
-		t.Fatalf("read status=%d body=%s", readRecorder.Code, readRecorder.Body.String())
+	paths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/draft-proposals"},
+		{http.MethodGet, "/api/v1/draft-proposals/" + proposalID},
+		{http.MethodPost, "/api/v1/draft-proposals/" + proposalID + "/operations/concept/review"},
+		{http.MethodPost, "/api/v1/draft-proposals/" + proposalID + "/approve"},
+		{http.MethodPost, "/api/v1/draft-proposals/" + proposalID + "/discard"},
 	}
-
-	approve := httptest.NewRequest(http.MethodPost, "/api/v1/draft-proposals/"+proposalID+"/approve", nil)
-	approve.AddCookie(&http.Cookie{Name: "viki_session", Value: "opaque-session"})
-	approve.AddCookie(&http.Cookie{Name: "viki_csrf", Value: csrf})
-	approve.Header.Set("X-CSRF-Token", csrf)
-	approveRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(approveRecorder, approve)
-	if approveRecorder.Code != http.StatusOK || !strings.Contains(approveRecorder.Body.String(), "published") {
-		t.Fatalf("approve status=%d body=%s", approveRecorder.Code, approveRecorder.Body.String())
-	}
-}
-
-func TestDraftProposalRejectionRequiresReasonAtHTTPBoundary(t *testing.T) {
-	t.Parallel()
-
-	csrf := "proposal-rejection-csrf"
-	proposalID := "00000000-0000-4000-8000-000000000089"
-	repository := &proposalRepository{
-		session: model.Session{
-			User:           model.User{ID: "00000000-0000-4000-8000-000000000011", Email: "matej@matejlukasik.com"},
-			OrganizationID: "00000000-0000-4000-8000-000000000001", CSRFHash: security.HashToken(csrf), Expires: time.Now().Add(time.Hour),
-		},
-		proposal: model.AssistantDraftProposal{ID: proposalID, Status: model.AssistantProposalAwaitingApproval},
-	}
-	handler := app.New(repository, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	body, _ := json.Marshal(map[string]string{"reason": "   "})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/draft-proposals/"+proposalID+"/discard", bytes.NewReader(body))
-	request.AddCookie(&http.Cookie{Name: "viki_session", Value: "opaque-session"})
-	request.AddCookie(&http.Cookie{Name: "viki_csrf", Value: csrf})
-	request.Header.Set("X-CSRF-Token", csrf)
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnprocessableEntity, recorder.Body.String())
-	}
-	if repository.discarded {
-		t.Fatal("repository was called without a rejection reason")
-	}
-
-	body, _ = json.Marshal(map[string]string{"reason": "  Chýba presný spôsob výpočtu ceny.  "})
-	request = httptest.NewRequest(http.MethodPost, "/api/v1/draft-proposals/"+proposalID+"/discard", bytes.NewReader(body))
-	request.AddCookie(&http.Cookie{Name: "viki_session", Value: "opaque-session"})
-	request.AddCookie(&http.Cookie{Name: "viki_csrf", Value: csrf})
-	request.Header.Set("X-CSRF-Token", csrf)
-	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
-	}
-	if repository.rejectionReason != "Chýba presný spôsob výpočtu ceny." {
-		t.Fatalf("rejection reason = %q", repository.rejectionReason)
-	}
-	if !strings.Contains(recorder.Body.String(), `"rejectionReason":"Chýba presný spôsob výpočtu ceny."`) {
-		t.Fatalf("response does not include rejection reason: %s", recorder.Body.String())
-	}
-}
-
-func TestDraftProposalOperationReviewRequiresReasonAndRecordsExactOperation(t *testing.T) {
-	t.Parallel()
-
-	csrf := "operation-review-csrf"
-	proposalID := "00000000-0000-4000-8000-000000000090"
-	repository := &proposalRepository{
-		session: model.Session{
-			User:           model.User{ID: "00000000-0000-4000-8000-000000000011", Email: "matej@matejlukasik.com"},
-			OrganizationID: "00000000-0000-4000-8000-000000000001", CSRFHash: security.HashToken(csrf), Expires: time.Now().Add(time.Hour),
-		},
-		proposal: model.AssistantDraftProposal{ID: proposalID, Status: model.AssistantProposalAwaitingApproval, OperationReviews: []model.AssistantOperationReview{}},
-	}
-	handler := app.New(repository, hermes.NewFakeGateway(), app.Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	requestReview := func(body map[string]any) *httptest.ResponseRecorder {
-		payload, _ := json.Marshal(body)
-		request := httptest.NewRequest(http.MethodPost, "/api/v1/draft-proposals/"+proposalID+"/operations/zmluva/review", bytes.NewReader(payload))
+	for _, route := range paths {
+		request := httptest.NewRequest(route.method, route.path, strings.NewReader(`{}`))
 		request.AddCookie(&http.Cookie{Name: "viki_session", Value: "opaque-session"})
-		request.AddCookie(&http.Cookie{Name: "viki_csrf", Value: csrf})
-		request.Header.Set("X-CSRF-Token", csrf)
+		if route.method == http.MethodPost {
+			request.AddCookie(&http.Cookie{Name: "viki_csrf", Value: csrf})
+			request.Header.Set("X-CSRF-Token", csrf)
+		}
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
-		return recorder
-	}
-
-	missingReason := requestReview(map[string]any{"value": "reject", "reason": "   "})
-	if missingReason.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("missing reason status = %d, want %d; body=%s", missingReason.Code, http.StatusUnprocessableEntity, missingReason.Body.String())
-	}
-	if repository.reviewedKey != "" {
-		t.Fatal("repository was called for a rejection without a reason")
-	}
-
-	approved := requestReview(map[string]any{"value": "approve", "cascadeDescendants": true})
-	if approved.Code != http.StatusOK {
-		t.Fatalf("approve status = %d, want %d; body=%s", approved.Code, http.StatusOK, approved.Body.String())
-	}
-	if repository.reviewedKey != "zmluva" || repository.reviewedValue != model.AssistantReviewApprove || repository.reviewedReason != "" || !repository.reviewedCascade {
-		t.Fatalf("review = (%q, %q, %q, cascade=%t)", repository.reviewedKey, repository.reviewedValue, repository.reviewedReason, repository.reviewedCascade)
-	}
-	if !strings.Contains(approved.Body.String(), `"operationKey":"zmluva"`) {
-		t.Fatalf("response does not include operation review: %s", approved.Body.String())
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("%s %s status = %d, want 404; body=%s", route.method, route.path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
