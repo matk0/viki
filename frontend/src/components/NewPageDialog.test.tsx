@@ -36,6 +36,8 @@ describe('NewPageDialog', () => {
 
     expect(screen.getByRole('heading', { name: heading })).toBeVisible()
     expect(screen.queryByRole('button', { name: 'Typ stránky' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Slug/)).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('service-availability')).not.toBeInTheDocument()
   })
 
   it('creates a scenario draft beneath its feature', async () => {
@@ -101,7 +103,7 @@ describe('NewPageDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Druh konceptu' }))
     await user.click(screen.getByRole('option', { name: 'Sloveso' }))
     await user.type(screen.getByLabelText('Názov'), 'Číslo zákazníka')
-    expect(screen.getByPlaceholderText('service-availability')).toHaveValue('cislo-zakaznika')
+    expect(screen.queryByText(/^Slug/)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Vytvoriť draft' }))
     expect(screen.getByRole('button', { name: 'Vytváram…' })).toBeDisabled()
 
@@ -115,28 +117,27 @@ describe('NewPageDialog', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('preserves a custom feature slug and omits concept-only data', async () => {
+  it('derives hidden feature and scenario slugs from their final titles', async () => {
     const user = userEvent.setup()
     mocks.createPage.mockResolvedValue({ page: { id: 'feature-1' } })
     render(<NewPageDialog initialKind="feature" onClose={vi.fn()} />)
 
     expect(screen.queryByRole('button', { name: 'Druh konceptu' })).not.toBeInTheDocument()
     await user.type(screen.getByLabelText('Názov'), 'First title')
-    await user.clear(screen.getByPlaceholderText('service-availability'))
-    await user.type(screen.getByPlaceholderText('service-availability'), 'custom-feature')
     await user.clear(screen.getByLabelText('Názov'))
     await user.type(screen.getByLabelText('Názov'), 'Changed title')
     await user.type(screen.getByLabelText('Názov scenára'), 'Initial scenario')
-    await user.clear(screen.getByLabelText('Slug scenára'))
-    await user.type(screen.getByLabelText('Slug scenára'), 'custom-scenario')
     await user.clear(screen.getByLabelText('Názov scenára'))
     await user.type(screen.getByLabelText('Názov scenára'), 'Changed scenario')
     await fillNewSteps(user, ['given', 'when', 'then'])
-    expect(screen.getByPlaceholderText('service-availability')).toHaveValue('custom-feature')
-    expect(screen.getByLabelText('Slug scenára')).toHaveValue('custom-scenario')
+    expect(screen.queryByText(/^Slug/)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Vytvoriť draft' }))
 
-    await waitFor(() => expect(mocks.createPage).toHaveBeenCalledWith(expect.objectContaining({ kind: 'feature', slug: 'custom-feature' })))
+    await waitFor(() => expect(mocks.createPage).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'feature',
+      slug: 'changed-title',
+      initialScenario: expect.objectContaining({ slug: 'changed-scenario' }),
+    })))
     expect(mocks.createPage.mock.calls[0][0]).not.toHaveProperty('conceptKind')
   })
 

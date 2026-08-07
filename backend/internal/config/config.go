@@ -20,6 +20,8 @@ type Config struct {
 	HermesQAConfigured     bool
 	HermesEditConfigured   bool
 	HermesToolToken        string
+	DeveloperEnabled       bool
+	DeveloperToolToken     string
 	CookieSecure           bool
 	SessionTTL             time.Duration
 	FrontendDir            string
@@ -40,6 +42,8 @@ func Load() (Config, error) {
 		HermesQAConfigured:     envBool("HERMES_QA_CONFIGURED", false),
 		HermesEditConfigured:   envBool("HERMES_EDIT_CONFIGURED", false),
 		HermesToolToken:        os.Getenv("VIKI_HERMES_TOOL_TOKEN"),
+		DeveloperEnabled:       envBool("VIKI_DEVELOPER_ENABLED", false),
+		DeveloperToolToken:     os.Getenv("VIKI_DEVELOPER_TOOL_TOKEN"),
 		CookieSecure:           envBool("COOKIE_SECURE", false),
 		SessionTTL:             12 * time.Hour,
 		FrontendDir:            env("FRONTEND_DIR", "../frontend/dist"),
@@ -56,6 +60,12 @@ func Load() (Config, error) {
 	}
 	if ip.IsUnspecified() && cfg.HermesToolToken == "" {
 		return Config{}, fmt.Errorf("VIKI_HERMES_TOOL_TOKEN is required for a wildcard internal listener")
+	}
+	if cfg.DeveloperEnabled && cfg.DeveloperToolToken == "" {
+		return Config{}, fmt.Errorf("VIKI_DEVELOPER_TOOL_TOKEN is required when VIKI_DEVELOPER_ENABLED is true")
+	}
+	if cfg.DeveloperEnabled && cfg.DevelopmentTargetToken == "" {
+		return Config{}, fmt.Errorf("DEVELOPMENT_TARGET_TOKEN is required when VIKI_DEVELOPER_ENABLED is true")
 	}
 	return cfg, nil
 }

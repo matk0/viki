@@ -560,6 +560,7 @@ export interface components {
             children: components["schemas"]["Page"][];
             reviewStates: components["schemas"]["RevisionReviewState"][];
             development?: components["schemas"]["ScenarioDevelopment"];
+            developmentProgress?: components["schemas"]["FeatureDevelopmentProgress"];
         };
         ScenarioDevelopment: {
             /** Format: uuid */
@@ -568,6 +569,10 @@ export interface components {
             detail: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        FeatureDevelopmentProgress: {
+            developed: number;
+            total: number;
         };
         Citation: {
             /** Format: uuid */

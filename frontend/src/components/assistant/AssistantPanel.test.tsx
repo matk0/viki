@@ -271,7 +271,7 @@ describe('AssistantPanel', () => {
     expect(mocks.api.stopAssistantConversation).toHaveBeenCalledWith('conversation-1')
   })
 
-  it('keeps an Edit turn in context until draft receipts link to normal pages', async () => {
+  it('navigates an accepted Edit turn to its live progress page immediately', async () => {
     const user = userEvent.setup()
     render(
       <Router>
@@ -286,7 +286,7 @@ describe('AssistantPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Odoslať' }))
 
     await waitFor(() => expect(mocks.api.sendAssistantMessage).toHaveBeenCalledWith('conversation-1', 'Vytvor koncept zákazník', 'edit'))
-    expect(window.location.pathname).toBe('/')
+    await waitFor(() => expect(window.location.pathname).toBe('/assistant/turns/turn-new'))
   })
 
   it('projects safe stream events into activity, citations, drafts, and structured clarification controls', async () => {
@@ -336,6 +336,42 @@ describe('AssistantPanel', () => {
       'clarification-1',
       'Domácnosť',
     ))
+  })
+
+  it('retains only safe progress states, summary text, and draft receipts for the live Edit screen', async () => {
+    renderProbe()
+    await waitFor(() => expect(assistantProbe?.loading).toBe(false))
+
+    act(() => emit({ id: 'progress-1', type: 'activity', data: { turnId: 'turn-progress', mode: 'edit', state: 'submitted', label: 'must not be retained' } }))
+    act(() => emit({ id: 'progress-2', type: 'activity', data: { turnId: 'turn-progress', mode: 'edit', state: 'searching', label: 'also hidden' } }))
+    act(() => emit({ id: 'progress-3', type: 'activity', data: { turnId: 'turn-progress', mode: 'edit', state: 'searching', label: 'duplicate' } }))
+    act(() => emit({ id: 'progress-4', type: 'message_delta', data: { turnId: 'turn-progress', mode: 'edit', delta: 'Pripravujem zmeny.' } }))
+    act(() => emit({ id: 'progress-5', type: 'draft_created', data: { turnId: 'turn-progress', mode: 'edit', draft } }))
+    act(() => emit({ id: 'progress-6', type: 'draft_created', data: { turnId: 'turn-progress', mode: 'edit', draft } }))
+    act(() => emit({ id: 'progress-7', type: 'completed', data: { turnId: 'turn-progress', mode: 'edit' } }))
+
+    expect(assistantProbe?.turns['turn-progress']).toEqual({
+      id: 'turn-progress',
+      mode: 'edit',
+      status: 'completed',
+      activities: ['submitted', 'searching'],
+      summary: 'Pripravujem zmeny.',
+      drafts: [draft],
+    })
+  })
+
+  it('initializes progress from first receipt and error events while ignoring unbound errors', async () => {
+    renderProbe()
+    await waitFor(() => expect(assistantProbe?.loading).toBe(false))
+
+    act(() => emit({ id: 'first-draft', type: 'draft_created', data: { turnId: 'turn-first-draft', mode: 'edit', draft } }))
+    act(() => emit({ id: 'first-error', type: 'error', data: { turnId: 'turn-first-error', mode: 'edit', code: 'failed', message: 'Turn failed.' } }))
+    act(() => emit({ id: 'missing-mode', type: 'error', data: { turnId: 'turn-missing-mode', code: 'failed', message: 'Ignored binding.' } }))
+    act(() => emit({ id: 'missing-turn', type: 'error', data: { code: 'failed', message: 'General failure.' } }))
+
+    expect(assistantProbe?.turns['turn-first-draft']?.drafts).toEqual([draft])
+    expect(assistantProbe?.turns['turn-first-error']).toMatchObject({ status: 'error', error: 'Turn failed.' })
+    expect(assistantProbe?.turns['turn-missing-mode']).toBeUndefined()
   })
 
   it('always includes drafts without a scope control and rejects Hermes management commands', async () => {
@@ -397,7 +433,7 @@ describe('AssistantPanel', () => {
     expect(screen.queryByText(/WebSocket|JSON-RPC|Hermes session/i)).not.toBeInTheDocument()
   })
 
-  it('creates only one initial conversation under React Strict Mode', async () => {
+  it('creates only one initial conversation in Edit mode under React Strict Mode', async () => {
     mocks.api.assistantConversations.mockResolvedValue({ conversations: [] })
     mocks.api.createAssistantConversation.mockResolvedValue({ ...conversation, messages: [] })
     render(
@@ -412,6 +448,19 @@ describe('AssistantPanel', () => {
 
     expect(await screen.findByText('Čo potrebujete zachytiť?')).toBeInTheDocument()
     expect(mocks.api.createAssistantConversation).toHaveBeenCalledTimes(1)
+    expect(mocks.api.createAssistantConversation).toHaveBeenCalledWith('edit')
+  })
+
+  it('loads an idle existing conversation with Edit selected by default', async () => {
+    const qaConversation = { ...conversation, lastMode: 'qa' as const }
+    mocks.api.assistantConversations.mockResolvedValue({ conversations: [qaConversation] })
+    mocks.api.assistantConversation.mockResolvedValue(qaConversation)
+
+    render(<Router><AssistantProvider><AssistantPanel /></AssistantProvider></Router>)
+
+    await screen.findByText('Zmluva vyžaduje identifikačné údaje.')
+    expect(screen.getByRole('button', { name: 'Úpravy' })).toHaveClass('active')
+    expect(screen.getByPlaceholderText('Opíšte, čo má viki pridať alebo zmeniť…')).toBeEnabled()
   })
 
   it('creates a conversation from the panel action', async () => {

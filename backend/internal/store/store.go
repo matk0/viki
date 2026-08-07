@@ -34,8 +34,8 @@ type Repository interface {
 	ApproveRevision(context.Context, string, string, string) (model.PageDetail, error)
 	HasQueuedScenarioDevelopment(context.Context) (bool, error)
 	ClaimScenarioDevelopment(context.Context) (model.DevelopmentTask, error)
-	CompleteScenarioDevelopment(context.Context, string) (model.ScenarioDevelopment, error)
-	BlockScenarioDevelopment(context.Context, string) (model.ScenarioDevelopment, error)
+	CompleteScenarioDevelopment(context.Context, string, string) (model.ScenarioDevelopment, error)
+	BlockScenarioDevelopment(context.Context, string, string) (model.ScenarioDevelopment, error)
 
 	AddComment(context.Context, string, string, string, string, *string, string) (model.Comment, error)
 	AddObjection(context.Context, string, string, string, string) (model.Objection, error)

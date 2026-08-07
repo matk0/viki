@@ -15,27 +15,30 @@ import (
 
 type assistantToolRepository struct {
 	store.Repository
-	conversation    model.AssistantConversation
-	documents       []model.RetrievedDocument
-	definitions     []model.StepDefinition
-	pageDetail      model.PageDetail
-	revision        model.Revision
-	revisions       []model.Revision
-	err             error
-	definitionErr   error
-	pageErr         error
-	mutation        model.AssistantMutationContext
-	changeSet       model.AIChangeSet
-	organization    string
-	user            string
-	query           string
-	definitionQuery string
-	limit           int
-	queued          bool
-	claimed         model.DevelopmentTask
-	development     model.ScenarioDevelopment
-	completed       string
-	blocked         string
+	conversation      model.AssistantConversation
+	documents         []model.RetrievedDocument
+	definitions       []model.StepDefinition
+	pageDetail        model.PageDetail
+	revision          model.Revision
+	revisions         []model.Revision
+	err               error
+	definitionErr     error
+	pageErr           error
+	mutation          model.AssistantMutationContext
+	changeSet         model.AIChangeSet
+	organization      string
+	user              string
+	query             string
+	definitionQuery   string
+	limit             int
+	queued            bool
+	claimed           model.DevelopmentTask
+	claimHook         func()
+	development       model.ScenarioDevelopment
+	completedRevision string
+	blockedRevision   string
+	completed         string
+	blocked           string
 }
 
 func (r *assistantToolRepository) ListStepDefinitions(_ context.Context, _ string, query string, _ *model.StepRole) ([]model.StepDefinition, error) {
@@ -77,15 +80,20 @@ func (r *assistantToolRepository) HasQueuedScenarioDevelopment(context.Context) 
 }
 
 func (r *assistantToolRepository) ClaimScenarioDevelopment(context.Context) (model.DevelopmentTask, error) {
+	if r.claimHook != nil {
+		r.claimHook()
+	}
 	return r.claimed, r.err
 }
 
-func (r *assistantToolRepository) CompleteScenarioDevelopment(_ context.Context, detail string) (model.ScenarioDevelopment, error) {
+func (r *assistantToolRepository) CompleteScenarioDevelopment(_ context.Context, revisionID, detail string) (model.ScenarioDevelopment, error) {
+	r.completedRevision = revisionID
 	r.completed = detail
 	return r.development, r.err
 }
 
-func (r *assistantToolRepository) BlockScenarioDevelopment(_ context.Context, detail string) (model.ScenarioDevelopment, error) {
+func (r *assistantToolRepository) BlockScenarioDevelopment(_ context.Context, revisionID, detail string) (model.ScenarioDevelopment, error) {
+	r.blockedRevision = revisionID
 	r.blocked = detail
 	return r.development, r.err
 }
@@ -412,61 +420,176 @@ func TestDeveloperToolsProcessOneScenarioWithoutModelControlledIdentity(t *testi
 		repository: repository,
 		assistant:  bareAssistantRuntime(repository, nil),
 		target:     target,
-		options:    Options{HermesToolToken: "service-secret"},
-		logger:     discardLogger(),
+		options: Options{
+			HermesToolToken:    "assistant-secret",
+			DeveloperEnabled:   true,
+			DeveloperToolToken: "developer-secret",
+		},
+		logger: discardLogger(),
 	}
 
-	pendingRequest := withAuthorization(httptest.NewRequest(http.MethodGet, "/", nil), "Bearer service-secret")
+	pendingRequest := withAuthorization(httptest.NewRequest(http.MethodGet, "/", nil), "Bearer developer-secret")
 	pending := httptest.NewRecorder()
 	server.handleDevelopmentPending(pending, pendingRequest)
 	if pending.Code != http.StatusOK || !strings.Contains(pending.Body.String(), `"wakeAgent":true`) {
 		t.Fatalf("pending status=%d body=%s", pending.Code, pending.Body.String())
 	}
 
-	invoke := func(tool, profile, sessionID, body string) *httptest.ResponseRecorder {
-		request := withAuthorization(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)), "Bearer service-secret")
+	invoke := func(tool, token, profile, sessionID, taskID, lease, body string) *httptest.ResponseRecorder {
+		request := withAuthorization(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)), token)
 		request.SetPathValue("tool", tool)
 		request.Header.Set("X-Hermes-Profile", profile)
 		request.Header.Set("X-Hermes-Session-ID", sessionID)
+		request.Header.Set("X-Hermes-Task-ID", taskID)
+		request.Header.Set("X-Viki-Development-Lease", lease)
 		recorder := httptest.NewRecorder()
 		server.handleHermesTool(recorder, request)
 		return recorder
 	}
 
-	if recorder := invoke("claim_next_scenario", "viki-developer", "cron-session-1", `{}`); recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "Customer signs a contract") {
-		t.Fatalf("claim status=%d body=%s", recorder.Code, recorder.Body.String())
+	claim := invoke("claim_next_scenario", "Bearer developer-secret", "viki-developer", "cron-session-1", "task-1", "", `{}`)
+	lease := claim.Header().Get("X-Viki-Development-Lease")
+	if claim.Code != http.StatusOK || lease == "" || strings.Contains(claim.Body.String(), lease) || !strings.Contains(claim.Body.String(), "Customer signs a contract") {
+		t.Fatalf("claim status=%d lease=%q body=%s", claim.Code, lease, claim.Body.String())
 	}
-	if recorder := invoke("complete_scenario_development", "viki-developer", "cron-session-1", `{"implementation":"Implemented contract signing"}`); recorder.Code != http.StatusOK || repository.completed != "target-receipt-1" || target.implementation != "Implemented contract signing" {
-		t.Fatalf("complete status=%d completed=%q implementation=%q body=%s", recorder.Code, repository.completed, target.implementation, recorder.Body.String())
+	if recorder := invoke("complete_scenario_development", "Bearer developer-secret", "viki-developer", "cron-session-1", "task-1", lease, `{"implementation":"Implemented contract signing"}`); recorder.Code != http.StatusOK || repository.completedRevision != "revision-1" || repository.completed != "target-receipt-1" || target.implementation != "Implemented contract signing" {
+		t.Fatalf("complete status=%d revision=%q completed=%q implementation=%q body=%s", recorder.Code, repository.completedRevision, repository.completed, target.implementation, recorder.Body.String())
 	}
-	repository.development = model.ScenarioDevelopment{RevisionID: "revision-2", Status: model.DevelopmentBlocked, Detail: "Missing API"}
-	if recorder := invoke("block_scenario_development", "developer", "cron-session-2", `{"reason":"Missing API"}`); recorder.Code != http.StatusOK || repository.blocked != "Missing API" {
-		t.Fatalf("block status=%d blocked=%q body=%s", recorder.Code, repository.blocked, recorder.Body.String())
+
+	claim = invoke("claim_next_scenario", "Bearer developer-secret", "developer", "cron-session-2", "task-2", "", `{}`)
+	lease = claim.Header().Get("X-Viki-Development-Lease")
+	if claim.Code != http.StatusOK || lease == "" {
+		t.Fatalf("second claim status=%d lease=%q body=%s", claim.Code, lease, claim.Body.String())
+	}
+	repository.development = model.ScenarioDevelopment{RevisionID: "revision-1", Status: model.DevelopmentBlocked, Detail: "Missing API"}
+	if recorder := invoke("block_scenario_development", "Bearer developer-secret", "developer", "cron-session-2", "task-2", lease, `{"reason":"Missing API"}`); recorder.Code != http.StatusOK || repository.blockedRevision != "revision-1" || repository.blocked != "Missing API" {
+		t.Fatalf("block status=%d revision=%q blocked=%q body=%s", recorder.Code, repository.blockedRevision, repository.blocked, recorder.Body.String())
 	}
 
 	for _, test := range []struct {
-		tool, profile, session string
+		tool, token, profile, session, task string
+		status                              int
 	}{
-		{tool: "claim_next_scenario", profile: "qa", session: "qa-stored"},
-		{tool: "search_viki", profile: "developer", session: "cron-session"},
-		{tool: "claim_next_scenario", profile: "developer"},
+		{tool: "claim_next_scenario", token: "Bearer assistant-secret", profile: "developer", session: "cron-session", task: "task-1", status: http.StatusUnauthorized},
+		{tool: "search_viki", token: "Bearer developer-secret", profile: "qa", session: "qa-stored", task: "task-1", status: http.StatusUnauthorized},
+		{tool: "claim_next_scenario", token: "Bearer developer-secret", profile: "qa", session: "qa-stored", task: "task-1", status: http.StatusUnauthorized},
+		{tool: "search_viki", token: "Bearer developer-secret", profile: "developer", session: "cron-session", task: "task-1", status: http.StatusForbidden},
+		{tool: "claim_next_scenario", token: "Bearer developer-secret", profile: "developer", session: "cron-session", task: "", status: http.StatusForbidden},
 	} {
-		if recorder := invoke(test.tool, test.profile, test.session, `{}`); recorder.Code != http.StatusForbidden {
-			t.Fatalf("tool=%s profile=%s status=%d body=%s", test.tool, test.profile, recorder.Code, recorder.Body.String())
+		if recorder := invoke(test.tool, test.token, test.profile, test.session, test.task, "", `{}`); recorder.Code != test.status {
+			t.Fatalf("tool=%s profile=%s status=%d want=%d body=%s", test.tool, test.profile, recorder.Code, test.status, recorder.Body.String())
 		}
+	}
+}
+
+func TestDeveloperToolsAreDisabledWithoutAnExplicitCapability(t *testing.T) {
+	t.Parallel()
+	repository := &assistantToolRepository{claimed: model.DevelopmentTask{
+		ScenarioDevelopment: model.ScenarioDevelopment{RevisionID: "revision-1", Status: model.DevelopmentRunning},
+	}}
+	server := &Server{
+		repository: repository,
+		assistant:  bareAssistantRuntime(repository, nil),
+		options:    Options{HermesToolToken: "assistant-secret"},
+		logger:     discardLogger(),
+	}
+
+	request := withAuthorization(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`)), "Bearer assistant-secret")
+	request.SetPathValue("tool", "claim_next_scenario")
+	request.Header.Set("X-Hermes-Profile", "developer")
+	request.Header.Set("X-Hermes-Session-ID", "arbitrary-session")
+	recorder := httptest.NewRecorder()
+
+	server.handleHermesTool(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("developer tool without an explicit capability status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	pending := httptest.NewRecorder()
+	server.handleDevelopmentPending(pending, httptest.NewRequest(http.MethodGet, "/", nil))
+	if pending.Code != http.StatusOK || !strings.Contains(pending.Body.String(), `"wakeAgent":false`) {
+		t.Fatalf("disabled pending status=%d body=%s", pending.Code, pending.Body.String())
+	}
+}
+
+func TestDeveloperClaimFailsClosedWhenItsLeaseCannotBeBound(t *testing.T) {
+	t.Parallel()
+	repository := &assistantToolRepository{claimed: model.DevelopmentTask{
+		ScenarioDevelopment: model.ScenarioDevelopment{RevisionID: "revision-1", Status: model.DevelopmentRunning},
+	}}
+	server := &Server{
+		repository: repository,
+		assistant:  bareAssistantRuntime(repository, nil),
+		options: Options{
+			DeveloperEnabled:   true,
+			DeveloperToolToken: "developer-secret",
+		},
+		logger: discardLogger(),
+	}
+	repository.claimHook = func() {
+		server.claims.mu.Lock()
+		server.claims.bySession["cron-session"] = developmentClaim{taskID: "other-task", lease: "other-lease"}
+		server.claims.mu.Unlock()
+	}
+	request := withAuthorization(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`)), "Bearer developer-secret")
+	request.SetPathValue("tool", "claim_next_scenario")
+	request.Header.Set("X-Hermes-Profile", "developer")
+	request.Header.Set("X-Hermes-Session-ID", "cron-session")
+	request.Header.Set("X-Hermes-Task-ID", "task-1")
+	recorder := httptest.NewRecorder()
+
+	server.handleHermesTool(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("unbound claim status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestDeveloperClaimFailsClosedWhenLeaseGenerationFails(t *testing.T) {
+	original := readDevelopmentLeaseRandom
+	readDevelopmentLeaseRandom = func([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
+	t.Cleanup(func() { readDevelopmentLeaseRandom = original })
+	repository := &assistantToolRepository{claimHook: func() { t.Fatal("repository claim ran without a lease") }}
+	server := &Server{
+		repository: repository,
+		assistant:  bareAssistantRuntime(repository, nil),
+		options: Options{
+			DeveloperEnabled:   true,
+			DeveloperToolToken: "developer-secret",
+		},
+		logger: discardLogger(),
+	}
+	request := withAuthorization(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`)), "Bearer developer-secret")
+	request.SetPathValue("tool", "claim_next_scenario")
+	request.Header.Set("X-Hermes-Profile", "developer")
+	request.Header.Set("X-Hermes-Session-ID", "cron-session")
+	request.Header.Set("X-Hermes-Task-ID", "task-1")
+	recorder := httptest.NewRecorder()
+
+	server.handleHermesTool(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("lease generation status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
 func TestDeveloperToolFailuresAreReturnedWithoutChangingState(t *testing.T) {
 	t.Parallel()
-	repository := &assistantToolRepository{}
+	repository := &assistantToolRepository{
+		claimed:     model.DevelopmentTask{ScenarioDevelopment: model.ScenarioDevelopment{RevisionID: "revision-1", Status: model.DevelopmentRunning}},
+		development: model.ScenarioDevelopment{RevisionID: "revision-1", Status: model.DevelopmentDeveloped, Detail: "target-receipt-1"},
+	}
 	target := &fakeDevelopmentTarget{receipt: "target-receipt-1"}
 	server := &Server{
 		repository: repository,
 		assistant:  bareAssistantRuntime(repository, nil),
 		target:     target,
-		options:    Options{HermesToolToken: "service-secret"},
-		logger:     discardLogger(),
+		options: Options{
+			HermesToolToken:    "assistant-secret",
+			DeveloperEnabled:   true,
+			DeveloperToolToken: "developer-secret",
+		},
+		logger: discardLogger(),
 	}
 
 	pending := func(authorization string) *httptest.ResponseRecorder {
@@ -479,46 +602,87 @@ func TestDeveloperToolFailuresAreReturnedWithoutChangingState(t *testing.T) {
 		t.Fatalf("unauthorized pending status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	repository.err = errors.New("queue unavailable")
-	if recorder := pending("Bearer service-secret"); recorder.Code != http.StatusUnprocessableEntity {
+	if recorder := pending("Bearer developer-secret"); recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("failed pending status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	repository.err = nil
 
-	invoke := func(tool, body string) *httptest.ResponseRecorder {
-		request := withAuthorization(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)), "Bearer service-secret")
+	invoke := func(tool, sessionID, taskID, lease, body string) *httptest.ResponseRecorder {
+		request := withAuthorization(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)), "Bearer developer-secret")
 		request.SetPathValue("tool", tool)
 		request.Header.Set("X-Hermes-Profile", "developer")
-		request.Header.Set("X-Hermes-Session-ID", "cron-session")
+		request.Header.Set("X-Hermes-Session-ID", sessionID)
+		request.Header.Set("X-Hermes-Task-ID", taskID)
+		request.Header.Set("X-Viki-Development-Lease", lease)
 		recorder := httptest.NewRecorder()
 		server.handleHermesTool(recorder, request)
 		return recorder
 	}
+	claim := func(sessionID, taskID string) string {
+		t.Helper()
+		recorder := invoke("claim_next_scenario", sessionID, taskID, "", `{}`)
+		lease := recorder.Header().Get("X-Viki-Development-Lease")
+		if recorder.Code != http.StatusOK || lease == "" {
+			t.Fatalf("claim status=%d lease=%q body=%s", recorder.Code, lease, recorder.Body.String())
+		}
+		return lease
+	}
 
 	for _, tool := range []string{"claim_next_scenario", "complete_scenario_development", "block_scenario_development"} {
-		if recorder := invoke(tool, `{`); recorder.Code != http.StatusBadRequest {
+		if recorder := invoke(tool, "cron-session", "task-1", "", `{`); recorder.Code != http.StatusBadRequest {
 			t.Fatalf("malformed %s status=%d body=%s", tool, recorder.Code, recorder.Body.String())
 		}
 	}
-	if recorder := invoke("complete_scenario_development", `{"implementation":" "}`); recorder.Code != http.StatusUnprocessableEntity {
+	if recorder := invoke("complete_scenario_development", "cron-session", "task-1", "", `{"implementation":" "}`); recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("empty implementation status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if recorder := invoke("block_scenario_development", `{"reason":" "}`); recorder.Code != http.StatusUnprocessableEntity {
+	if recorder := invoke("block_scenario_development", "cron-session", "task-1", "", `{"reason":" "}`); recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("empty reason status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := invoke("complete_scenario_development", "cron-session", "task-1", "", `{"implementation":"implementation"}`); recorder.Code != http.StatusForbidden || target.implementation != "" {
+		t.Fatalf("unclaimed completion status=%d implementation=%q body=%s", recorder.Code, target.implementation, recorder.Body.String())
+	}
+	if recorder := invoke("block_scenario_development", "cron-session", "task-1", "", `{"reason":"reason"}`); recorder.Code != http.StatusForbidden {
+		t.Fatalf("unclaimed block status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 
 	repository.err = errors.New("repository unavailable")
-	for _, test := range []struct{ tool, body string }{
-		{tool: "claim_next_scenario", body: `{}`},
-		{tool: "complete_scenario_development", body: `{"implementation":"implementation"}`},
-		{tool: "block_scenario_development", body: `{"reason":"reason"}`},
-	} {
-		if recorder := invoke(test.tool, test.body); recorder.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("failed %s status=%d body=%s", test.tool, recorder.Code, recorder.Body.String())
-		}
+	if recorder := invoke("claim_next_scenario", "cron-session", "task-1", "", `{}`); recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("failed claim status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	repository.err = nil
+
+	lease := claim("cron-session", "task-1")
+	if recorder := invoke("claim_next_scenario", "cron-session", "task-2", "", `{}`); recorder.Code != http.StatusConflict {
+		t.Fatalf("duplicate claim status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	repository.err = errors.New("repository unavailable")
+	if recorder := invoke("complete_scenario_development", "cron-session", "task-1", lease, `{"implementation":"implementation"}`); recorder.Code != http.StatusUnprocessableEntity || target.implementation != "implementation" {
+		t.Fatalf("failed completion status=%d implementation=%q body=%s", recorder.Code, target.implementation, recorder.Body.String())
+	}
+	if recorder := invoke("complete_scenario_development", "cron-session", "task-1", lease, `{"implementation":"implementation"}`); recorder.Code != http.StatusForbidden {
+		t.Fatalf("released completion status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	repository.err = nil
+
 	target.err = errors.New("target unavailable")
-	if recorder := invoke("complete_scenario_development", `{"implementation":"implementation"}`); recorder.Code != http.StatusUnprocessableEntity {
+	lease = claim("cron-session", "task-2")
+	if recorder := invoke("complete_scenario_development", "cron-session", "task-2", lease, `{"implementation":"second implementation"}`); recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("failed target status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := invoke("complete_scenario_development", "cron-session", "task-2", lease, `{"implementation":"second implementation"}`); recorder.Code != http.StatusForbidden {
+		t.Fatalf("released target failure status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	target.err = nil
+
+	lease = claim("cron-session", "task-3")
+	repository.err = errors.New("repository unavailable")
+	if recorder := invoke("block_scenario_development", "cron-session", "task-3", lease, `{"reason":"reason"}`); recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("failed block status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	repository.err = nil
+	repository.development = model.ScenarioDevelopment{RevisionID: "revision-1", Status: model.DevelopmentBlocked, Detail: "reason"}
+	if recorder := invoke("block_scenario_development", "cron-session", "task-3", lease, `{"reason":"reason"}`); recorder.Code != http.StatusOK || repository.blockedRevision != "revision-1" {
+		t.Fatalf("retried block status=%d revision=%q body=%s", recorder.Code, repository.blockedRevision, recorder.Body.String())
 	}
 }

@@ -267,6 +267,12 @@ type CreatePageRequest struct {
 // DevelopmentStatus defines model for DevelopmentStatus.
 type DevelopmentStatus string
 
+// FeatureDevelopmentProgress defines model for FeatureDevelopmentProgress.
+type FeatureDevelopmentProgress struct {
+	Developed int `json:"developed"`
+	Total     int `json:"total"`
+}
+
 // HealthStatus defines model for HealthStatus.
 type HealthStatus string
 
@@ -327,15 +333,16 @@ type Page struct {
 
 // PageDetail defines model for PageDetail.
 type PageDetail struct {
-	ApprovedRevision *Revision             `json:"approvedRevision,omitempty"`
-	Children         []Page                `json:"children"`
-	Comments         []Comment             `json:"comments"`
-	Development      *ScenarioDevelopment  `json:"development,omitempty"`
-	DraftRevision    *Revision             `json:"draftRevision,omitempty"`
-	Objections       []Objection           `json:"objections"`
-	Page             Page                  `json:"page"`
-	ReviewStates     []RevisionReviewState `json:"reviewStates"`
-	Revisions        []RevisionSummary     `json:"revisions"`
+	ApprovedRevision    *Revision                   `json:"approvedRevision,omitempty"`
+	Children            []Page                      `json:"children"`
+	Comments            []Comment                   `json:"comments"`
+	Development         *ScenarioDevelopment        `json:"development,omitempty"`
+	DevelopmentProgress *FeatureDevelopmentProgress `json:"developmentProgress,omitempty"`
+	DraftRevision       *Revision                   `json:"draftRevision,omitempty"`
+	Objections          []Objection                 `json:"objections"`
+	Page                Page                        `json:"page"`
+	ReviewStates        []RevisionReviewState       `json:"reviewStates"`
+	Revisions           []RevisionSummary           `json:"revisions"`
 }
 
 // PageKind defines model for PageKind.

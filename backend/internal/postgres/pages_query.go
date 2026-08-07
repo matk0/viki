@@ -231,6 +231,25 @@ func (r *Repository) PageDetail(ctx context.Context, organizationID, pageID stri
 			}
 			detail.Children = append(detail.Children, child)
 		}
+		if err := rows.Err(); err != nil {
+			return model.PageDetail{}, err
+		}
+		rows.Close()
+		progress := model.FeatureDevelopmentProgress{}
+		if err := r.pool.QueryRow(ctx, `
+			SELECT count(*), count(*) FILTER (WHERE sd.status = 'developed')
+			FROM pages scenario
+			LEFT JOIN scenario_developments sd ON sd.revision_id = scenario.approved_revision_id
+			WHERE scenario.organization_id = $1
+			  AND scenario.parent_id = $2
+			  AND scenario.kind = 'scenario'
+			  AND scenario.approved_revision_id IS NOT NULL
+		`, organizationID, pageID).Scan(&progress.Total, &progress.Developed); err != nil {
+			return model.PageDetail{}, err
+		}
+		if progress.Total > 0 {
+			detail.DevelopmentProgress = &progress
+		}
 	}
 	return detail, nil
 }

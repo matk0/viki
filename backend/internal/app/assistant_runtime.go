@@ -441,14 +441,8 @@ func (r *assistantRuntime) handleToolEvent(turn *assistantTurn, event hermes.Eve
 		r.failClosed(turn, "Hermes použil nepovolený nástroj.")
 		return
 	}
-	state := "running"
-	if event.Type == "tool.start" {
-		state = "started"
-	} else if event.Type == "tool.complete" {
-		state = "completed"
-	}
 	r.publish(turn.ConversationID, "activity", map[string]any{
-		"turnId": turn.ID, "mode": turn.Mode, "state": state, "label": toolActivityLabel(payload.Name),
+		"turnId": turn.ID, "mode": turn.Mode, "state": toolActivityState(payload.Name, event.Type), "label": toolActivityLabel(payload.Name),
 	})
 	if event.Type != "tool.complete" || len(payload.Result) == 0 {
 		return
@@ -1019,6 +1013,29 @@ func toolActivityLabel(name string) string {
 		return "Vytváram drafty vo viki…"
 	default:
 		return "Pracujem s viki…"
+	}
+}
+
+func toolActivityState(name, eventType string) string {
+	completed := eventType == "tool.complete"
+	switch name {
+	case "search_viki":
+		if completed {
+			return "searched"
+		}
+		return "searching"
+	case "get_viki_page", "get_viki_revision":
+		if completed {
+			return "read"
+		}
+		return "reading"
+	case "apply_viki_draft_changeset":
+		if completed {
+			return "drafted"
+		}
+		return "drafting"
+	default:
+		return "working"
 	}
 }
 

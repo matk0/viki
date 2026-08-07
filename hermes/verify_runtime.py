@@ -132,6 +132,12 @@ def main() -> None:
     captured = {}
 
     class ContractResponse:
+        headers = (
+            {"X-Viki-Development-Lease": "viki-contract-lease"}
+            if profile == "developer"
+            else {}
+        )
+
         def __enter__(self):
             return self
 
@@ -177,6 +183,11 @@ def main() -> None:
         raise RuntimeError("pinned Hermes did not inject the durable session ID")
     if request.get_header("X-hermes-profile") != profile:
         raise RuntimeError("Viki handler derived the wrong runtime profile")
+    if request.get_header("X-hermes-task-id") != "viki-contract-task":
+        raise RuntimeError("pinned Hermes did not inject the tool task ID")
+    credential_variable = "VIKI_DEVELOPER_TOOL_TOKEN" if profile == "developer" else "VIKI_HERMES_TOOL_TOKEN"
+    if request.get_header("Authorization") != f"Bearer {os.environ.get(credential_variable, '')}":
+        raise RuntimeError("pinned Hermes used the wrong Viki credential")
     if json.loads(request.data) != contract_arguments:
         raise RuntimeError("trusted runtime identity leaked into model tool arguments")
 

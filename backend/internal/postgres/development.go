@@ -59,28 +59,23 @@ func (r *Repository) ClaimScenarioDevelopment(ctx context.Context) (model.Develo
 	return model.DevelopmentTask{ScenarioDevelopment: development, Scenario: scenario}, nil
 }
 
-func (r *Repository) CompleteScenarioDevelopment(ctx context.Context, detail string) (model.ScenarioDevelopment, error) {
-	return r.finishScenarioDevelopment(ctx, model.DevelopmentDeveloped, detail)
+func (r *Repository) CompleteScenarioDevelopment(ctx context.Context, revisionID, detail string) (model.ScenarioDevelopment, error) {
+	return r.finishScenarioDevelopment(ctx, revisionID, model.DevelopmentDeveloped, detail)
 }
 
-func (r *Repository) BlockScenarioDevelopment(ctx context.Context, detail string) (model.ScenarioDevelopment, error) {
-	return r.finishScenarioDevelopment(ctx, model.DevelopmentBlocked, detail)
+func (r *Repository) BlockScenarioDevelopment(ctx context.Context, revisionID, detail string) (model.ScenarioDevelopment, error) {
+	return r.finishScenarioDevelopment(ctx, revisionID, model.DevelopmentBlocked, detail)
 }
 
-func (r *Repository) finishScenarioDevelopment(ctx context.Context, status model.DevelopmentStatus, detail string) (model.ScenarioDevelopment, error) {
+func (r *Repository) finishScenarioDevelopment(ctx context.Context, revisionID string, status model.DevelopmentStatus, detail string) (model.ScenarioDevelopment, error) {
 	var development model.ScenarioDevelopment
 	var storedStatus string
 	err := r.pool.QueryRow(ctx, `
 		UPDATE scenario_developments
 		SET status = $1, detail = $2, updated_at = now()
-		WHERE revision_id = (
-			SELECT revision_id FROM scenario_developments
-			WHERE status = 'running'
-			ORDER BY updated_at, revision_id
-			LIMIT 1
-		)
+		WHERE revision_id = $3 AND status = 'running'
 		RETURNING revision_id::text, status, detail, updated_at
-	`, status, detail).Scan(&development.RevisionID, &storedStatus, &development.Detail, &development.UpdatedAt)
+	`, status, detail, revisionID).Scan(&development.RevisionID, &storedStatus, &development.Detail, &development.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.ScenarioDevelopment{}, store.ErrNotFound
 	}

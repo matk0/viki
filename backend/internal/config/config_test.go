@@ -25,7 +25,7 @@ func TestLoadUsesSafeLocalDefaults(t *testing.T) {
 	if cfg.HermesQAWSURL != "ws://127.0.0.1:9119/api/ws" || cfg.HermesEditWSURL != "ws://127.0.0.1:9120/api/ws" {
 		t.Fatalf("unexpected Hermes URLs: qa=%q edit=%q", cfg.HermesQAWSURL, cfg.HermesEditWSURL)
 	}
-	if cfg.CookieSecure || cfg.HermesQAConfigured || cfg.HermesEditConfigured {
+	if cfg.CookieSecure || cfg.HermesQAConfigured || cfg.HermesEditConfigured || cfg.DeveloperEnabled || cfg.DeveloperToolToken != "" {
 		t.Fatalf("optional flags must default off: %+v", cfg)
 	}
 	if cfg.SessionTTL != 12*time.Hour || cfg.FrontendDir != "../frontend/dist" {
@@ -39,21 +39,23 @@ func TestLoadUsesSafeLocalDefaults(t *testing.T) {
 func TestLoadReadsEverySupportedOverride(t *testing.T) {
 	clearConfigEnvironment(t)
 	overrides := map[string]string{
-		"VIKI_ADDRESS":             "localhost:8081",
-		"VIKI_INTERNAL_ADDRESS":    "[::1]:8091",
-		"DATABASE_URL":             "postgres://example.test/viki",
-		"INITIAL_USER_PASSWORD":    "secret",
-		"HERMES_QA_WS_URL":         "ws://localhost:9219/ws",
-		"HERMES_EDIT_WS_URL":       "ws://localhost:9220/ws",
-		"HERMES_QA_TOKEN":          "qa-token",
-		"HERMES_EDIT_TOKEN":        "edit-token",
-		"HERMES_QA_CONFIGURED":     "true",
-		"HERMES_EDIT_CONFIGURED":   "not-a-boolean",
-		"VIKI_HERMES_TOOL_TOKEN":   "tool-token",
-		"COOKIE_SECURE":            "true",
-		"FRONTEND_DIR":             "/srv/viki/public",
-		"DEVELOPMENT_TARGET_URL":   "http://mock-target:8091",
-		"DEVELOPMENT_TARGET_TOKEN": "target-token",
+		"VIKI_ADDRESS":              "localhost:8081",
+		"VIKI_INTERNAL_ADDRESS":     "[::1]:8091",
+		"DATABASE_URL":              "postgres://example.test/viki",
+		"INITIAL_USER_PASSWORD":     "secret",
+		"HERMES_QA_WS_URL":          "ws://localhost:9219/ws",
+		"HERMES_EDIT_WS_URL":        "ws://localhost:9220/ws",
+		"HERMES_QA_TOKEN":           "qa-token",
+		"HERMES_EDIT_TOKEN":         "edit-token",
+		"HERMES_QA_CONFIGURED":      "true",
+		"HERMES_EDIT_CONFIGURED":    "not-a-boolean",
+		"VIKI_HERMES_TOOL_TOKEN":    "tool-token",
+		"VIKI_DEVELOPER_ENABLED":    "true",
+		"VIKI_DEVELOPER_TOOL_TOKEN": "developer-token",
+		"COOKIE_SECURE":             "true",
+		"FRONTEND_DIR":              "/srv/viki/public",
+		"DEVELOPMENT_TARGET_URL":    "http://mock-target:8091",
+		"DEVELOPMENT_TARGET_TOKEN":  "target-token",
 	}
 	for name, value := range overrides {
 		t.Setenv(name, value)
@@ -70,10 +72,10 @@ func TestLoadReadsEverySupportedOverride(t *testing.T) {
 	if cfg.DatabaseURL != overrides["DATABASE_URL"] || cfg.InitialPassword != "secret" {
 		t.Fatalf("core overrides were not loaded: %+v", cfg)
 	}
-	if cfg.HermesQAToken != "qa-token" || cfg.HermesEditToken != "edit-token" || cfg.HermesToolToken != "tool-token" {
+	if cfg.HermesQAToken != "qa-token" || cfg.HermesEditToken != "edit-token" || cfg.HermesToolToken != "tool-token" || cfg.DeveloperToolToken != "developer-token" {
 		t.Fatalf("Hermes secrets were not loaded")
 	}
-	if !cfg.HermesQAConfigured || cfg.HermesEditConfigured || !cfg.CookieSecure {
+	if !cfg.HermesQAConfigured || cfg.HermesEditConfigured || !cfg.CookieSecure || !cfg.DeveloperEnabled {
 		t.Fatalf("boolean overrides were not parsed safely: %+v", cfg)
 	}
 	if cfg.FrontendDir != "/srv/viki/public" {
@@ -123,6 +125,27 @@ func TestLoadAllowsAuthenticatedPrivateNetworkInternalListener(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresExplicitDeveloperCapabilityAndTargetCredential(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("INITIAL_USER_PASSWORD", "password")
+	t.Setenv("VIKI_DEVELOPER_ENABLED", "true")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("developer execution without a capability was accepted")
+	}
+	t.Setenv("VIKI_DEVELOPER_TOOL_TOKEN", "developer-token")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("developer execution without a target credential was accepted")
+	}
+	t.Setenv("DEVELOPMENT_TARGET_TOKEN", "target-token")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.DeveloperEnabled || cfg.DeveloperToolToken != "developer-token" {
+		t.Fatalf("developer capability was not loaded: %+v", cfg)
+	}
+}
+
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
@@ -137,6 +160,8 @@ func clearConfigEnvironment(t *testing.T) {
 		"HERMES_QA_CONFIGURED",
 		"HERMES_EDIT_CONFIGURED",
 		"VIKI_HERMES_TOOL_TOKEN",
+		"VIKI_DEVELOPER_ENABLED",
+		"VIKI_DEVELOPER_TOOL_TOKEN",
 		"COOKIE_SECURE",
 		"FRONTEND_DIR",
 		"DEVELOPMENT_TARGET_URL",

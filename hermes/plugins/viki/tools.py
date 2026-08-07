@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from threading import Lock
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -12,11 +13,13 @@ _ENDPOINTS = {
     "get_page": "get_viki_page",
     "get_revision": "get_viki_revision",
     "apply_draft_changeset": "apply_viki_draft_changeset",
-	"claim_scenario": "claim_next_scenario",
-	"complete_development": "complete_scenario_development",
-	"block_development": "block_scenario_development",
+    "claim_scenario": "claim_next_scenario",
+    "complete_development": "complete_scenario_development",
+    "block_development": "block_scenario_development",
 }
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+_development_leases: dict[tuple[str, str], str] = {}
+_development_leases_lock = Lock()
 
 
 def _error(code: str, message: str) -> str:
@@ -61,6 +64,34 @@ def _decode_response(payload: bytes) -> str:
     return _error("invalid_upstream_response", "viki vrátilo neočakávanú odpoveď")
 
 
+def _has_result(payload: bytes) -> bool:
+    try:
+        decoded = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return isinstance(decoded, dict) and "result" in decoded
+
+
+def _tool_token(profile: str) -> str:
+    variable = "VIKI_DEVELOPER_TOOL_TOKEN" if profile == "developer" else "VIKI_HERMES_TOOL_TOKEN"
+    return os.environ.get(variable, "").strip()
+
+
+def _development_lease(session_id: str, task_id: str) -> str:
+    with _development_leases_lock:
+        return _development_leases.get((session_id, task_id), "")
+
+
+def _store_development_lease(session_id: str, task_id: str, lease: str) -> None:
+    with _development_leases_lock:
+        _development_leases[(session_id, task_id)] = lease
+
+
+def _clear_development_lease(session_id: str, task_id: str) -> None:
+    with _development_leases_lock:
+        _development_leases.pop((session_id, task_id), None)
+
+
 def _call(endpoint: str, args: dict, kwargs: dict, *, profiles: set[str] | None = None) -> str:
     session_id = str(kwargs.get("session_id") or "").strip()
     if not session_id:
@@ -79,9 +110,22 @@ def _call(endpoint: str, args: dict, kwargs: dict, *, profiles: set[str] | None 
     if profiles is not None and profile not in profiles:
         return _error("profile_forbidden", "Tento nástroj nie je povolený pre aktuálny profil.")
 
-    token = os.environ.get("VIKI_HERMES_TOOL_TOKEN", "").strip()
+    task_id = str(kwargs.get("task_id") or "").strip()
+    if profile == "developer" and not task_id:
+        return _error(
+            "missing_runtime_context",
+            "Hermes neposkytol dôveryhodný identifikátor úlohy; volanie bolo zamietnuté.",
+        )
+
+    token = _tool_token(profile)
     if not token:
         return _error("configuration_error", "Chýba interné overenie nástrojov viki.")
+
+    lease = ""
+    if profile == "developer" and endpoint in {_ENDPOINTS["complete_development"], _ENDPOINTS["block_development"]}:
+        lease = _development_lease(session_id, task_id)
+        if not lease:
+            return _error("missing_development_claim", "Vývojový scenár nebol bezpečne vyzdvihnutý.")
 
     try:
         base_url = _internal_base_url()
@@ -99,13 +143,15 @@ def _call(endpoint: str, args: dict, kwargs: dict, *, profiles: set[str] | None 
             "X-Hermes-Profile": profile,
         },
     )
-    task_id = str(kwargs.get("task_id") or "").strip()
     if task_id:
         request.add_header("X-Hermes-Task-ID", task_id)
+    if lease:
+        request.add_header("X-Viki-Development-Lease", lease)
 
     try:
         with urlopen(request, timeout=30) as response:
             payload = response.read(_MAX_RESPONSE_BYTES + 1)
+            response_lease = response.headers.get("X-Viki-Development-Lease", "").strip()
     except HTTPError as exc:
         payload = exc.read(_MAX_RESPONSE_BYTES + 1)
         if len(payload) <= _MAX_RESPONSE_BYTES:
@@ -116,6 +162,12 @@ def _call(endpoint: str, args: dict, kwargs: dict, *, profiles: set[str] | None 
 
     if len(payload) > _MAX_RESPONSE_BYTES:
         return _error("upstream_response_too_large", "Odpoveď viki je príliš veľká.")
+    if profile == "developer" and endpoint == _ENDPOINTS["claim_scenario"]:
+        if not response_lease:
+            return _error("invalid_upstream_response", "viki nevrátilo bezpečný vývojový nárok.")
+        _store_development_lease(session_id, task_id, response_lease)
+    if profile == "developer" and endpoint in {_ENDPOINTS["complete_development"], _ENDPOINTS["block_development"]} and _has_result(payload):
+        _clear_development_lease(session_id, task_id)
     return _decode_response(payload)
 
 

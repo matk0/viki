@@ -613,6 +613,7 @@ components:
         children: { type: array, items: { $ref: "#/components/schemas/Page" } }
         reviewStates: { type: array, items: { $ref: "#/components/schemas/RevisionReviewState" } }
         development: { $ref: "#/components/schemas/ScenarioDevelopment" }
+        developmentProgress: { $ref: "#/components/schemas/FeatureDevelopmentProgress" }
     ScenarioDevelopment:
       type: object
       required: [revisionId, status, detail, updatedAt]
@@ -621,6 +622,12 @@ components:
         status: { $ref: "#/components/schemas/DevelopmentStatus" }
         detail: { type: string }
         updatedAt: { type: string, format: date-time }
+    FeatureDevelopmentProgress:
+      type: object
+      required: [developed, total]
+      properties:
+        developed: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
     Citation:
       type: object
       required: [revisionId, pageId, pageTitle, draft]

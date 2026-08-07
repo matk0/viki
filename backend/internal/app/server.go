@@ -16,6 +16,8 @@ type Options struct {
 	SessionTTL             time.Duration
 	FrontendDir            string
 	HermesToolToken        string
+	DeveloperEnabled       bool
+	DeveloperToolToken     string
 	HandoffSigningKey      string
 	DevelopmentTargetURL   string
 	DevelopmentTargetToken string
@@ -29,6 +31,7 @@ type Server struct {
 	logger     *slog.Logger
 	limiter    *loginLimiter
 	target     developmentTarget
+	claims     developmentClaimStore
 }
 
 type Application struct {

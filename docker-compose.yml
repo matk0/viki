@@ -25,21 +25,23 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://viki:viki@database:5432/viki?sslmode=disable
-      INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-password}
+      INITIAL_USER_PASSWORD: "${INITIAL_USER_PASSWORD:?Set INITIAL_USER_PASSWORD in .env}"
       HERMES_QA_WS_URL: ws://hermes:9219/api/ws
       HERMES_EDIT_WS_URL: ws://hermes:9220/api/ws
-      HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:-viki-local-qa-session}
-      HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:-viki-local-edit-session}
+      HERMES_QA_TOKEN: "${HERMES_QA_TOKEN:?Set HERMES_QA_TOKEN in .env}"
+      HERMES_EDIT_TOKEN: "${HERMES_EDIT_TOKEN:?Set HERMES_EDIT_TOKEN in .env}"
       HERMES_QA_CONFIGURED: ${OPENAI_API_KEY:+true}
       HERMES_EDIT_CONFIGURED: ${OPENAI_API_KEY:+true}
-      VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:-viki-local-tool-service}
+      VIKI_HERMES_TOOL_TOKEN: "${VIKI_HERMES_TOOL_TOKEN:?Set VIKI_HERMES_TOOL_TOKEN in .env}"
+      VIKI_DEVELOPER_ENABLED: ${VIKI_DEVELOPER_ENABLED:-false}
+      VIKI_DEVELOPER_TOOL_TOKEN: ${VIKI_DEVELOPER_TOOL_TOKEN:-}
       VIKI_INTERNAL_ADDRESS: 0.0.0.0:8090
       DEVELOPMENT_TARGET_URL: http://mock-target:8091
-      DEVELOPMENT_TARGET_TOKEN: ${DEVELOPMENT_TARGET_TOKEN:-viki-local-development-target}
+      DEVELOPMENT_TARGET_TOKEN: "${DEVELOPMENT_TARGET_TOKEN:?Set DEVELOPMENT_TARGET_TOKEN in .env}"
       FRONTEND_DIR: /app/public
       COOKIE_SECURE: "false"
     ports:
-      - "8080:8080"
+      - "${VIKI_HOST_BIND:-127.0.0.1}:${VIKI_HOST_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 5s
@@ -48,8 +50,10 @@ services:
 
   mock-target:
     image: nginx:1.29.5-alpine
+    environment:
+      DEVELOPMENT_TARGET_TOKEN: "${DEVELOPMENT_TARGET_TOKEN:?Set DEVELOPMENT_TARGET_TOKEN in .env}"
     volumes:
-      - ./mock-target/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./mock-target/default.conf.template:/etc/nginx/templates/default.conf.template:ro
     expose:
       - "8091"
     healthcheck:
@@ -70,9 +74,11 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       HERMES_MODEL: ${HERMES_MODEL:-gpt-5.6-terra}
-      HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:-viki-local-qa-session}
-      HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:-viki-local-edit-session}
-      VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:-viki-local-tool-service}
+      HERMES_QA_TOKEN: "${HERMES_QA_TOKEN:?Set HERMES_QA_TOKEN in .env}"
+      HERMES_EDIT_TOKEN: "${HERMES_EDIT_TOKEN:?Set HERMES_EDIT_TOKEN in .env}"
+      VIKI_HERMES_TOOL_TOKEN: "${VIKI_HERMES_TOOL_TOKEN:?Set VIKI_HERMES_TOOL_TOKEN in .env}"
+      VIKI_DEVELOPER_ENABLED: ${VIKI_DEVELOPER_ENABLED:-false}
+      VIKI_DEVELOPER_TOOL_TOKEN: ${VIKI_DEVELOPER_TOOL_TOKEN:-}
       VIKI_INTERNAL_URL: http://viki:8090
     volumes:
       - viki-hermes:/opt/data
@@ -85,9 +91,11 @@ services:
         - >-
           curl -fsS http://127.0.0.1:9219/api/status >/dev/null &&
           curl -fsS http://127.0.0.1:9220/api/status >/dev/null &&
-          curl -fsS http://127.0.0.1:9121/api/status >/dev/null &&
-          HOME=/opt/data HERMES_HOME=/opt/data/profiles/viki-developer
-          hermes -p viki-developer cron status | grep -Fq "Gateway is running"
+          if [ "$${VIKI_DEVELOPER_ENABLED}" = "true" ]; then
+            curl -fsS http://127.0.0.1:9121/api/status >/dev/null &&
+            HOME=/opt/data HERMES_HOME=/opt/data/profiles/viki-developer
+            hermes -p viki-developer cron status | grep -Fq "Gateway is running";
+          fi
       interval: 5s
       timeout: 3s
       retries: 30

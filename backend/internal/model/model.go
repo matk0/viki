@@ -198,15 +198,21 @@ type RevisionReviewState struct {
 }
 
 type PageDetail struct {
-	Page             Page                  `json:"page"`
-	ApprovedRevision *Revision             `json:"approvedRevision,omitempty"`
-	DraftRevision    *Revision             `json:"draftRevision,omitempty"`
-	Revisions        []RevisionSummary     `json:"revisions"`
-	Comments         []Comment             `json:"comments"`
-	Objections       []Objection           `json:"objections"`
-	Children         []Page                `json:"children"`
-	ReviewStates     []RevisionReviewState `json:"reviewStates"`
-	Development      *ScenarioDevelopment  `json:"development,omitempty"`
+	Page                Page                        `json:"page"`
+	ApprovedRevision    *Revision                   `json:"approvedRevision,omitempty"`
+	DraftRevision       *Revision                   `json:"draftRevision,omitempty"`
+	Revisions           []RevisionSummary           `json:"revisions"`
+	Comments            []Comment                   `json:"comments"`
+	Objections          []Objection                 `json:"objections"`
+	Children            []Page                      `json:"children"`
+	ReviewStates        []RevisionReviewState       `json:"reviewStates"`
+	Development         *ScenarioDevelopment        `json:"development,omitempty"`
+	DevelopmentProgress *FeatureDevelopmentProgress `json:"developmentProgress,omitempty"`
+}
+
+type FeatureDevelopmentProgress struct {
+	Developed int `json:"developed"`
+	Total     int `json:"total"`
 }
 
 type ScenarioDevelopment struct {

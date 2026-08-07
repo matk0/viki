@@ -3,11 +3,31 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+type developmentTargetRoundTripper struct {
+	response *http.Response
+	err      error
+}
+
+func (transport developmentTargetRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return transport.response, transport.err
+}
+
+type failingDevelopmentTargetBody struct{}
+
+var errReadDevelopmentTargetResponse = errors.New("read failed")
+
+func (failingDevelopmentTargetBody) Read([]byte) (int, error) {
+	return 0, errReadDevelopmentTargetResponse
+}
+func (failingDevelopmentTargetBody) Close() error { return nil }
 
 func TestHTTPDevelopmentTargetAppliesImplementation(t *testing.T) {
 	t.Parallel()
@@ -30,6 +50,73 @@ func TestHTTPDevelopmentTargetAppliesImplementation(t *testing.T) {
 	receipt, err := target.Apply(context.Background(), "contract signing")
 	if err != nil || receipt != "receipt-1" {
 		t.Fatalf("receipt=%q error=%v", receipt, err)
+	}
+}
+
+func TestHTTPDevelopmentTargetRejectsBlankTokenBeforeRequest(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		writeJSON(w, http.StatusOK, map[string]string{"receipt": "unexpected"})
+	}))
+	defer server.Close()
+
+	_, err := newHTTPDevelopmentTarget(server.URL, "").Apply(context.Background(), "implementation")
+	if err == nil {
+		t.Fatal("development target accepted a blank token")
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("development target made %d request(s) without a token", got)
+	}
+}
+
+func TestHTTPDevelopmentTargetRejectsRedirects(t *testing.T) {
+	t.Parallel()
+	var redirectedRequests atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectedRequests.Add(1)
+		writeJSON(w, http.StatusOK, map[string]string{"receipt": "unexpected"})
+	}))
+	defer destination.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL+"/implement", http.StatusFound)
+	}))
+	defer source.Close()
+
+	_, err := newHTTPDevelopmentTarget(source.URL, "target-secret").Apply(context.Background(), "implementation")
+	if err == nil {
+		t.Fatal("development target accepted a redirect")
+	}
+	if got := redirectedRequests.Load(); got != 0 {
+		t.Fatalf("development target followed redirect with %d request(s)", got)
+	}
+}
+
+func TestHTTPDevelopmentTargetRejectsOversizedResponse(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"receipt": strings.Repeat("x", 128*1024)})
+	}))
+	defer server.Close()
+
+	_, err := newHTTPDevelopmentTarget(server.URL, "target-secret").Apply(context.Background(), "implementation")
+	if err == nil {
+		t.Fatal("development target accepted an oversized response")
+	}
+}
+
+func TestHTTPDevelopmentTargetRejectsUnreadableResponse(t *testing.T) {
+	t.Parallel()
+	target := newHTTPDevelopmentTarget("http://target.test", "target-secret").(*httpDevelopmentTarget)
+	target.client = &http.Client{Transport: developmentTargetRoundTripper{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       failingDevelopmentTargetBody{},
+		Header:     make(http.Header),
+	}}}
+
+	if _, err := target.Apply(context.Background(), "implementation"); !errors.Is(err, errReadDevelopmentTargetResponse) {
+		t.Fatalf("unreadable target response error=%v", err)
 	}
 }
 
@@ -56,7 +143,11 @@ func TestHTTPDevelopmentTargetRejectsUnavailableOrInvalidResponses(t *testing.T)
 				defer server.Close()
 				url = server.URL
 			}
-			_, err := newHTTPDevelopmentTarget(url, "").Apply(context.Background(), "implementation")
+			token := "target-secret"
+			if test.name == "not configured" {
+				token = ""
+			}
+			_, err := newHTTPDevelopmentTarget(url, token).Apply(context.Background(), "implementation")
 			if err == nil {
 				t.Fatal("invalid target response was accepted")
 			}
@@ -64,7 +155,7 @@ func TestHTTPDevelopmentTargetRejectsUnavailableOrInvalidResponses(t *testing.T)
 	}
 
 	server := httptest.NewServer(http.NotFoundHandler())
-	target := newHTTPDevelopmentTarget(server.URL, "")
+	target := newHTTPDevelopmentTarget(server.URL, "target-secret")
 	server.Close()
 	if _, err := target.Apply(context.Background(), strings.Repeat("x", 2)); err == nil {
 		t.Fatal("unavailable target was accepted")

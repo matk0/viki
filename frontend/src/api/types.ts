@@ -171,6 +171,10 @@ export interface PageDetail {
     detail: string
     updatedAt: string
   }
+  developmentProgress?: {
+    developed: number
+    total: number
+  }
 }
 
 export type Citation = Schemas['Citation']

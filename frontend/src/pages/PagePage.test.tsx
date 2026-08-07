@@ -331,6 +331,49 @@ describe('PagePage revision links', () => {
     expect(container.querySelector('.document-icon.approved')).toBeInTheDocument()
   })
 
+  it('shows progress for approved scenarios on a feature and ignores drafts', async () => {
+    const featurePage = { ...detail.page, id: 'feature-page', kind: 'feature' as const, conceptKind: undefined, title: 'Zmluvy' }
+    const featureRevision = { ...approved, id: 'feature-revision', pageId: featurePage.id, title: featurePage.title }
+    mocks.page.mockResolvedValue({
+      ...detail,
+      page: { ...featurePage, approvedRevisionId: featureRevision.id, latestDraftRevisionId: undefined, hasDraft: false },
+      approvedRevision: featureRevision,
+      draftRevision: undefined,
+      developmentProgress: { developed: 1, total: 2 },
+      reviewStates: [{ revisionId: featureRevision.id, state: 'approved', blockers: [] }],
+    })
+    window.history.replaceState({}, '', '/page/feature-page')
+
+    const { container } = render(<Router><PagePage pageId="feature-page" /></Router>)
+
+    const status = (await screen.findByText('Vo vývoji')).closest<HTMLElement>('[role="listitem"]')!
+    expect(status).toHaveTextContent('1/2')
+    expect(status.querySelector('svg')).toHaveClass('lucide-hammer')
+    expect(status).toHaveClass('development-running', 'current')
+    expect(container.querySelector('.review-status-list')?.lastElementChild).toBe(status)
+  })
+
+  it('marks a feature as developed when every approved scenario is developed', async () => {
+    const featurePage = { ...detail.page, id: 'feature-page', kind: 'feature' as const, conceptKind: undefined, title: 'Zmluvy' }
+    const featureRevision = { ...approved, id: 'feature-revision', pageId: featurePage.id, title: featurePage.title }
+    mocks.page.mockResolvedValue({
+      ...detail,
+      page: { ...featurePage, approvedRevisionId: featureRevision.id, latestDraftRevisionId: undefined, hasDraft: false },
+      approvedRevision: featureRevision,
+      draftRevision: undefined,
+      developmentProgress: { developed: 2, total: 2 },
+      reviewStates: [{ revisionId: featureRevision.id, state: 'approved', blockers: [] }],
+    })
+    window.history.replaceState({}, '', '/page/feature-page')
+
+    render(<Router><PagePage pageId="feature-page" /></Router>)
+
+    const status = (await screen.findByText('Vyvinuté')).closest<HTMLElement>('[role="listitem"]')!
+    expect(status).toHaveTextContent('2/2')
+    expect(status.querySelector('svg')).toHaveClass('lucide-circle-check')
+    expect(status).toHaveClass('development-developed', 'current')
+  })
+
   it('places related pages at the bottom of a feature article', async () => {
     const featurePage = { ...detail.page, id: 'feature-page', kind: 'feature' as const, conceptKind: undefined, title: 'Zmluvy' }
     const scenarioPage = { ...detail.page, id: 'scenario-page', kind: 'scenario' as const, parentId: featurePage.id, conceptKind: undefined, title: 'Podpis zmluvy' }

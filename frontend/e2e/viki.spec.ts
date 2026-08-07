@@ -34,6 +34,13 @@ async function createDraftConcept(page: Page, title: string) {
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
 }
 
+async function proposeInitialScenarioSteps(page: Page, steps: readonly string[]) {
+  for (const [index, text] of steps.entries()) {
+    await page.getByRole('button', { name: 'Navrhnúť nový krok' }).first().click()
+    await page.getByRole('textbox', { name: `Nová definícia kroku ${index + 1}` }).fill(text)
+  }
+}
+
 async function expectGrayscale(page: Page) {
   const violations = await page.locator('body').evaluate((body) => {
     const properties = [
@@ -614,7 +621,7 @@ test('removes the global new-page button from the sidebar', async ({ page }) => 
   await page.screenshot({ path: '../outputs/viki-sidebar-without-new-page.png', fullPage: true })
 })
 
-test('assistant draft receipts link to real page revisions without a proposal screen', async ({ page }) => {
+test('assistant draft receipts in chat link to real page revisions', async ({ page }) => {
   const conversationId = '00000000-0000-4000-8000-000000000071'
   const revisionId = '00000000-0000-4000-8000-000000000073'
   const pageId = '00000000-0000-4000-8000-000000000074'
@@ -674,7 +681,8 @@ test('assistant draft receipts link to real page revisions without a proposal sc
       createdBy: { id: '00000000-0000-4000-8000-000000000011', email: initialUser, displayName: 'Matej', createdAt: now },
       createdAt: now,
     },
-    revisions: [], comments: [], children: [],
+    revisions: [], comments: [], objections: [], children: [],
+    reviewStates: [{ revisionId, state: 'ready', blockers: [] }],
   } }))
 
   await login(page)
@@ -689,6 +697,122 @@ test('assistant draft receipts link to real page revisions without a proposal sc
   await receiptLink.click()
   await expect(page).toHaveURL(`/page/${pageId}?revision=${revisionId}`)
   await expect(page.getByRole('heading', { name: 'Zmluva', exact: true })).toBeVisible()
+})
+
+test('assistant Edit turn streams progress and then opens the new Feature draft', async ({ page }) => {
+  const conversationId = '00000000-0000-4000-8000-000000000081'
+  const turnId = '00000000-0000-4000-8000-000000000082'
+  const concept = { revisionId: '00000000-0000-4000-8000-000000000083', pageId: '00000000-0000-4000-8000-000000000084', pageTitle: 'Zákazník' }
+  const scenario = { revisionId: '00000000-0000-4000-8000-000000000085', pageId: '00000000-0000-4000-8000-000000000086', pageTitle: 'Úspešná rezervácia' }
+  const feature = { revisionId: '00000000-0000-4000-8000-000000000087', pageId: '00000000-0000-4000-8000-000000000088', pageTitle: 'Rezervácia internetovej služby' }
+  const now = '2026-08-03T08:00:00Z'
+  const summary = {
+    id: conversationId,
+    title: 'Rezervácia služby',
+    primaryMode: 'edit',
+    lastMode: 'edit',
+    state: 'idle',
+    createdAt: now,
+    updatedAt: now,
+  }
+  const pages = [
+    { id: concept.pageId, kind: 'concept', conceptKind: 'noun', slug: 'zakaznik', title: concept.pageTitle },
+    { id: scenario.pageId, kind: 'scenario', parentId: feature.pageId, slug: 'uspesna-rezervacia', title: scenario.pageTitle },
+    { id: feature.pageId, kind: 'feature', slug: 'rezervacia-internetovej-sluzby', title: feature.pageTitle },
+  ].map((item) => ({ ...item, approved: false, hasDraft: true, unresolvedObjections: 0, createdAt: now, updatedAt: now }))
+  let releaseProgress!: () => void
+  let releaseCompletion!: () => void
+  const progressReady = new Promise<void>((resolve) => { releaseProgress = resolve })
+  const completionReady = new Promise<void>((resolve) => { releaseCompletion = resolve })
+  let streamConnection = 0
+  let submitted = false
+  let finished = false
+
+  await page.route('**/api/v1/assistant/**', async (route) => {
+    const request = route.request()
+    const pathname = new URL(request.url()).pathname
+    if (pathname === '/api/v1/assistant/status') {
+      return route.fulfill({ json: { available: true, qa: { mode: 'qa', connected: true, configured: true, ready: true }, edit: { mode: 'edit', connected: true, configured: true, ready: true } } })
+    }
+    if (pathname === '/api/v1/assistant/conversations' && request.method() === 'GET') return route.fulfill({ json: { conversations: [summary] } })
+    if (pathname === `/api/v1/assistant/conversations/${conversationId}` && request.method() === 'GET') {
+      return route.fulfill({ json: {
+        ...summary,
+        state: submitted && !finished ? 'running' : 'idle',
+        messages: finished ? [{
+          id: `${turnId}-assistant`, role: 'assistant', mode: 'edit', content: 'Pripravil som funkciu rezervácie a jej prvý scenár.',
+          citations: [], drafts: [concept, scenario, feature], createdAt: now,
+        }] : [],
+      } })
+    }
+    if (pathname === `/api/v1/assistant/conversations/${conversationId}/messages` && request.method() === 'POST') {
+      submitted = true
+      releaseProgress()
+      return route.fulfill({ status: 202, json: { turnId, mode: 'edit' } })
+    }
+    if (pathname === `/api/v1/assistant/conversations/${conversationId}/events`) {
+      streamConnection += 1
+      if (streamConnection === 1) {
+        await progressReady
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        const events = [
+          ['activity', { turnId, mode: 'edit', state: 'submitted', label: '' }],
+          ['activity', { turnId, mode: 'edit', state: 'searching', label: '' }],
+          ['activity', { turnId, mode: 'edit', state: 'searched', label: '' }],
+          ['activity', { turnId, mode: 'edit', state: 'reading', label: '' }],
+          ['activity', { turnId, mode: 'edit', state: 'read', label: '' }],
+          ['activity', { turnId, mode: 'edit', state: 'drafting', label: '' }],
+          ['message_delta', { turnId, mode: 'edit', delta: 'Pripravil som funkciu rezervácie a jej prvý scenár.' }],
+          ['draft_created', { turnId, mode: 'edit', draft: concept }],
+          ['draft_created', { turnId, mode: 'edit', draft: scenario }],
+          ['draft_created', { turnId, mode: 'edit', draft: feature }],
+          ['activity', { turnId, mode: 'edit', state: 'drafted', label: '' }],
+        ].map(([event, data], index) => `id: ${index + 1}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n`).join('\n')
+        return route.fulfill({ status: 200, contentType: 'text/event-stream', body: `${events}\nretry: 100\n\n` })
+      }
+      if (streamConnection === 2) {
+        await completionReady
+        finished = true
+        return route.fulfill({ status: 200, contentType: 'text/event-stream', body: `id: 12\nevent: completed\ndata: ${JSON.stringify({ turnId, mode: 'edit' })}\n\nretry: 60000\n\n` })
+      }
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'retry: 60000\n\n' })
+    }
+    return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'not found' } } })
+  })
+  await page.route('**/api/v1/pages**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname === '/api/v1/pages') return route.fulfill({ json: { pages } })
+    if (pathname === `/api/v1/pages/${feature.pageId}`) return route.fulfill({ json: {
+      page: { ...pages[2], latestDraftRevisionId: feature.revisionId },
+      draftRevision: {
+        id: feature.revisionId, pageId: feature.pageId, number: 1, status: 'draft', title: feature.pageTitle,
+        bodyMd: 'Rezervácia internetovej služby.', steps: [], references: [],
+        createdBy: { id: 'user-1', email: initialUser, displayName: 'Matej', createdAt: now }, createdAt: now,
+      },
+      revisions: [], comments: [], objections: [], children: [],
+      reviewStates: [{ revisionId: feature.revisionId, state: 'ready', blockers: [] }],
+    } })
+    return route.continue()
+  })
+
+  await login(page)
+  await page.getByRole('button', { name: 'Otvoriť asistenta' }).click()
+  await page.getByPlaceholder('Opíšte, čo má viki pridať alebo zmeniť…').fill('Pridaj funkciu rezervácie internetovej služby.')
+  await page.getByRole('button', { name: 'Odoslať' }).click()
+
+  await expect(page).toHaveURL(`/assistant/turns/${turnId}`)
+  await expect(page.getByRole('heading', { name: 'Viki pripravuje zmeny' })).toBeVisible()
+  await expect(page.getByText('Našiel som súvisiace stránky')).toBeVisible()
+  await expect(page.getByText('Pripravil som funkciu rezervácie a jej prvý scenár.').first()).toBeVisible()
+  await expect(page.locator('.assistant-turn-drafts a')).toHaveCount(3)
+  expect(await page.locator('.assistant-turn-grid').evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
+    await page.locator('.assistant-turn-grid').evaluate((element) => element.clientWidth),
+  )
+  await page.screenshot({ path: '../outputs/viki-assistant-live-edit.png', fullPage: true })
+
+  releaseCompletion()
+  await expect(page).toHaveURL(`/page/${feature.pageId}?revision=${feature.revisionId}`)
+  await expect(page.getByRole('heading', { name: feature.pageTitle, exact: true })).toBeVisible()
 })
 
 test('does not seed the AIRNET wiki corpus', async ({ page }) => {
@@ -728,7 +852,9 @@ test('keeps related pages collapsed until their accordion is opened', async ({ p
     },
     revisions: [],
     comments: [],
+    objections: [],
     children: [],
+    reviewStates: [{ revisionId, state: 'approved', blockers: [] }],
   } }))
   await login(page)
   await page.goto(`/page/${pageId}`)
@@ -750,7 +876,7 @@ test('rejection blocks approval, resolution permits it, and approved content sta
   await page.getByRole('button', { name: 'Pridať koncept' }).click()
   await page.getByLabel('Názov').fill(`Testovacie pravidlo ${suffix}`)
   await page.getByRole('button', { name: 'Vytvoriť draft' }).click()
-  await expect(page.getByText('Kontrola verzie #1')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kontrola' })).toBeVisible()
   const headerStateIcon = page.locator('.document-title-row > .document-icon')
   await expect(headerStateIcon).toHaveAttribute('aria-label', 'Koncept · Draft')
   await expect(headerStateIcon).toHaveClass(/draft/)
@@ -758,13 +884,14 @@ test('rejection blocks approval, resolution permits it, and approved content sta
   await expect(page.locator('.document-title-main .document-icon')).toHaveCount(0)
   await expect(page.locator('.document-title-row > .status-badge')).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Nesúhlasím' }).click()
+  await page.getByRole('button', { name: 'Vzniesť námietku' }).click()
   const reject = page.getByRole('button', { name: 'Odoslať námietku' })
   await expect(reject).toBeDisabled()
-  await page.getByLabel('Dôvod nesúhlasu').fill('Chýba presná definícia konceptu.')
+  await page.getByLabel('Dôvod námietky').fill('Chýba presná definícia konceptu.')
   await reject.click()
-  await expect(page.getByText('1 otvorená námietka')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Schválenie je zablokované' })).toBeDisabled()
+  await expect(page.getByText('Chýba presná definícia konceptu.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Schváliť' })).toBeDisabled()
+  await page.locator('.review-status-accordion > summary').click()
   await page.getByRole('button', { name: 'Označiť ako vyriešené' }).click()
   await page.getByRole('button', { name: 'Schváliť' }).click()
   await expect(page.getByText('Verzia #1')).toBeVisible()
@@ -774,11 +901,12 @@ test('rejection blocks approval, resolution permits it, and approved content sta
   await expect(headerStateIcon).toHaveCSS('border-color', 'rgb(167, 203, 104)')
 
   await page.locator('.document-header').getByRole('button', { name: 'Nová verzia' }).click()
-  await expect(page.locator('.page-editor > label')).toHaveCount(3)
+  await expect(page.locator('.page-editor > label')).toHaveCount(2)
   await expect(page.getByText('Obsahuje ilustračné, neoverené pravidlá')).toHaveCount(0)
   await page.getByLabel('Obsah stránky').fill('Toto je nový obsah, ktorý ešte nebol schválený.')
   await page.getByRole('button', { name: 'Uložiť novú verziu' }).click()
   await expect(page.getByRole('tab', { name: 'Schválené' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Schválené' }).click()
   await expect(page.getByText('Táto stránka zatiaľ nemá opis.')).toBeVisible()
   await page.getByRole('tab', { name: /Draft #2/ }).click()
   await expect(page.getByText('Toto je nový obsah, ktorý ešte nebol schválený.')).toBeVisible()
@@ -808,12 +936,14 @@ test('users can manually create a feature and its independently versioned scenar
   await page.getByRole('button', { name: 'Pridať funkciu' }).click()
   await expect(page.getByRole('heading', { name: 'Vytvoriť funkciu' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Typ stránky' })).toHaveCount(0)
-  await page.getByLabel('Názov').fill(featureTitle)
+  await page.getByLabel('Názov', { exact: true }).fill(featureTitle)
   const scenarioTitle = `E2E scenár ${suffix}`
   await page.getByLabel('Názov scenára').fill(scenarioTitle)
-  await page.getByLabel('Pokiaľ').fill('zákazník má pripravenú zmluvu')
-  await page.getByLabel('Keď').fill('zákazník zmluvu podpíše')
-  await page.getByLabel('Potom').fill('systém uloží podpis')
+  await proposeInitialScenarioSteps(page, [
+    'zákazník má pripravenú zmluvu',
+    'zákazník zmluvu podpíše',
+    'systém uloží podpis',
+  ])
   await page.getByRole('button', { name: 'Vytvoriť draft' }).click()
   await expect(page.getByRole('heading', { name: featureTitle })).toBeVisible()
   const featureUrl = page.url()
@@ -822,17 +952,18 @@ test('users can manually create a feature and its independently versioned scenar
   await expect(page.getByRole('heading', { name: scenarioTitle })).toBeVisible()
   await expect(page.getByRole('link', { name: featureTitle })).toHaveAttribute('href', /\/page\//)
   const scenarioUrl = page.url()
+  await page.locator('.review-status-accordion > summary').click()
   await expect(page.getByText('Najprv schváľte funkciu')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Čaká na schválenie funkcie' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Schváliť' })).toBeDisabled()
 
   await page.goto(featureUrl)
   await page.getByRole('button', { name: 'Schváliť' }).click()
-  await expect(page.getByText('Schválená verzia', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Funkcia · Schválené' })).toBeVisible()
 
   await page.goto(scenarioUrl)
   await expect(page.getByText('Najprv schváľte funkciu')).toHaveCount(0)
   await page.getByRole('button', { name: 'Schváliť' }).click()
-  await expect(page.getByText('Schválená verzia', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Scenár · Schválené' })).toBeVisible()
 
   await page.goto(featureUrl)
   await page.locator('.document-header').getByRole('button', { name: 'Nová verzia', exact: true }).click()
@@ -841,7 +972,7 @@ test('users can manually create a feature and its independently versioned scenar
   await expect(page.getByRole('tab', { name: /Draft #2/ })).toBeVisible()
 
   await page.goto(scenarioUrl)
-  await expect(page.getByText('Schválená verzia', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Scenár · Schválené' })).toBeVisible()
   await expect(page.getByRole('tab', { name: /Draft/ })).toHaveCount(0)
 })
 
@@ -853,9 +984,11 @@ test('page detail actions use one rendered height', async ({ page }) => {
   await page.getByRole('button', { name: 'Pridať funkciu' }).click()
   await page.getByLabel('Názov', { exact: true }).fill(featureTitle)
   await page.getByLabel('Názov scenára').fill(`E2E scenár ${suffix}`)
-  await page.getByLabel('Pokiaľ').fill('existuje funkcia')
-  await page.getByLabel('Keď').fill('používateľ otvorí detail')
-  await page.getByLabel('Potom').fill('akcie majú rovnakú výšku')
+  await proposeInitialScenarioSteps(page, [
+    'existuje funkcia',
+    'používateľ otvorí detail',
+    'akcie majú rovnakú výšku',
+  ])
   await page.getByRole('button', { name: 'Vytvoriť draft' }).evaluate((button: HTMLButtonElement) => button.click())
   await expect(page.getByRole('heading', { name: featureTitle })).toBeVisible()
 
@@ -884,7 +1017,7 @@ test('wiki creation remains usable while the assistant is unavailable', async ({
   await page.getByLabel('Názov').fill(sourceTitle)
   await page.getByRole('button', { name: 'Vytvoriť draft' }).click()
   await expect(page.getByRole('heading', { name: sourceTitle })).toBeVisible()
-  await expect(page.getByText('Kontrola verzie #1')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kontrola' })).toBeVisible()
 })
 
 test('mobile workspace navigation remains usable', async ({ page }) => {

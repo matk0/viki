@@ -55,7 +55,7 @@ RUN rm -f /etc/s6-overlay/s6-rc.d/user/contents.d/dashboard && \
     HERMES_HOME=/tmp/viki-contract/profiles/viki-developer \
     HERMES_TUI_TOOLSETS=viki_develop \
     HERMES_TUI_PASS_SESSION_ID=0 \
-    VIKI_HERMES_TOOL_TOKEN=viki-build-contract \
+    VIKI_DEVELOPER_TOOL_TOKEN=viki-build-contract \
     python3 /opt/viki-hermes/verify_runtime.py developer && \
     rm -rf /tmp/viki-contract
 

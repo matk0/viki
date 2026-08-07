@@ -55,7 +55,7 @@ func TestDeveloperClaimsAndCompletesOneScenario(t *testing.T) {
 		t.Fatalf("second claim error = %v, want not found", err)
 	}
 
-	development, err := fixture.repository.CompleteScenarioDevelopment(fixture.ctx, "mock-receipt-1")
+	development, err := fixture.repository.CompleteScenarioDevelopment(fixture.ctx, task.RevisionID, "mock-receipt-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,12 +71,93 @@ func TestDeveloperClaimsAndCompletesOneScenario(t *testing.T) {
 	}
 }
 
+func TestDeveloperCompletionTargetsItsClaimedRevision(t *testing.T) {
+	fixture := newDevelopmentFixture(t)
+	if _, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, fixture.scenario.DraftRevision.ID); err != nil {
+		t.Fatal(err)
+	}
+	firstTask, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondScenario, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+		Kind: model.PageScenario, ParentID: &fixture.featureID, Slug: "second-development-scenario-" + uuid.NewString(),
+		Content: model.RevisionContent{Title: "Second development scenario", References: []model.PageReference{}, Steps: developmentSteps()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, secondScenario.DraftRevision.ID); err != nil {
+		t.Fatal(err)
+	}
+	secondTask, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondTask.RevisionID == firstTask.RevisionID {
+		t.Fatalf("second claim reused first revision %q", secondTask.RevisionID)
+	}
+	if _, err := fixture.repository.CompleteScenarioDevelopment(fixture.ctx, secondTask.RevisionID, "mock-receipt-2"); err != nil {
+		t.Fatal(err)
+	}
+	var firstStatus, secondStatus string
+	if err := fixture.connection.QueryRow(fixture.ctx, `SELECT status FROM scenario_developments WHERE revision_id = $1`, firstTask.RevisionID).Scan(&firstStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.connection.QueryRow(fixture.ctx, `SELECT status FROM scenario_developments WHERE revision_id = $1`, secondTask.RevisionID).Scan(&secondStatus); err != nil {
+		t.Fatal(err)
+	}
+	if firstStatus != string(model.DevelopmentRunning) || secondStatus != string(model.DevelopmentDeveloped) {
+		t.Fatalf("completion changed statuses first=%q second=%q", firstStatus, secondStatus)
+	}
+}
+
+func TestFeatureDevelopmentProgressCountsOnlyApprovedScenarios(t *testing.T) {
+	fixture := newDevelopmentFixture(t)
+	if _, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, fixture.scenario.DraftRevision.ID); err != nil {
+		t.Fatal(err)
+	}
+	task, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.repository.CompleteScenarioDevelopment(fixture.ctx, task.RevisionID, "mock-receipt-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	approvedScenario, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+		Kind: model.PageScenario, ParentID: &fixture.featureID, Slug: "approved-scenario-" + uuid.NewString(),
+		Content: model.RevisionContent{Title: "Approved scenario", References: []model.PageReference{}, Steps: developmentSteps()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.repository.ApproveRevision(fixture.ctx, fixture.organizationID, fixture.userID, approvedScenario.DraftRevision.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.repository.CreatePage(fixture.ctx, fixture.organizationID, fixture.userID, model.CreatePageInput{
+		Kind: model.PageScenario, ParentID: &fixture.featureID, Slug: "draft-scenario-" + uuid.NewString(),
+		Content: model.RevisionContent{Title: "Draft scenario", References: []model.PageReference{}, Steps: developmentSteps()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := fixture.repository.PageDetail(fixture.ctx, fixture.organizationID, fixture.featureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.DevelopmentProgress == nil || detail.DevelopmentProgress.Developed != 1 || detail.DevelopmentProgress.Total != 2 {
+		t.Fatalf("feature development progress = %+v, want 1/2", detail.DevelopmentProgress)
+	}
+}
+
 type developmentFixture struct {
 	ctx            context.Context
 	repository     *postgres.Repository
 	connection     *pgx.Conn
 	organizationID string
 	userID         string
+	featureID      string
 	scenario       model.PageDetail
 }
 
@@ -158,6 +239,14 @@ func newDevelopmentFixture(t *testing.T) developmentFixture {
 	}
 	return developmentFixture{
 		ctx: ctx, repository: repository, connection: connection,
-		organizationID: organizationID, userID: userID, scenario: scenario,
+		organizationID: organizationID, userID: userID, featureID: feature.Page.ID, scenario: scenario,
+	}
+}
+
+func developmentSteps() []model.Step {
+	return []model.Step{
+		{Keyword: model.KeywordGiven, Text: "a contract is ready"},
+		{Keyword: model.KeywordWhen, Text: "the customer signs it"},
+		{Keyword: model.KeywordThen, Text: "the signature is recorded"},
 	}
 }

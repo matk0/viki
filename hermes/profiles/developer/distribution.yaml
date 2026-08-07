@@ -7,8 +7,8 @@ env_requires:
   - name: OPENAI_API_KEY
     description: OpenAI API kľúč pre vývojový model
     required: false
-  - name: VIKI_HERMES_TOOL_TOKEN
-    description: Interné overenie privátneho nástrojového API viki
+  - name: VIKI_DEVELOPER_TOOL_TOKEN
+    description: Samostatné overenie privilegovaného vývojového API viki
     required: true
 distribution_owned:
   - distribution.yaml

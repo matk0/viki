@@ -1,0 +1,14 @@
+server {
+    listen 8091;
+
+    location = /implement {
+        if ($request_method != POST) { return 405; }
+        if ($http_authorization != "Bearer ${DEVELOPMENT_TARGET_TOKEN}") { return 401; }
+        default_type application/json;
+        return 200 '{"receipt":"mock-target-receipt"}';
+    }
+
+    location = /healthz {
+        return 200 'ok';
+    }
+}

@@ -16,8 +16,9 @@ from viki import history_projection, register, schemas, tools  # noqa: E402
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, headers=None):
         self.payload = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        self.headers = headers or {}
 
     def __enter__(self):
         return self
@@ -36,10 +37,13 @@ class VikiPluginTest(unittest.TestCase):
             {
                 "VIKI_INTERNAL_URL": "http://viki:8090",
                 "VIKI_HERMES_TOOL_TOKEN": "service-secret",
+                "VIKI_DEVELOPER_TOOL_TOKEN": "developer-secret",
             },
             clear=False,
         )
         self.env.start()
+        with tools._development_leases_lock:
+            tools._development_leases.clear()
 
     def tearDown(self):
         self.env.stop()
@@ -315,30 +319,103 @@ class VikiPluginTest(unittest.TestCase):
 
     def test_developer_tools_are_available_only_to_the_developer_profile(self):
         responses = iter([
-            FakeResponse({"result": {"revisionId": "revision-1", "status": "running"}}),
+            FakeResponse(
+                {"result": {"revisionId": "revision-1", "status": "running"}},
+                {"X-Viki-Development-Lease": "lease-1"},
+            ),
             FakeResponse({"result": {"revisionId": "revision-1", "status": "developed"}}),
+            FakeResponse(
+                {"result": {"revisionId": "revision-2", "status": "running"}},
+                {"X-Viki-Development-Lease": "lease-2"},
+            ),
             FakeResponse({"result": {"revisionId": "revision-2", "status": "blocked"}}),
         ])
+        requests = []
+
+        def fake_open(request, timeout):
+            self.assertEqual(timeout, 30)
+            requests.append(request)
+            return next(responses)
+
         with patch.object(tools, "_runtime_profile", return_value="developer"), patch.object(
-            tools, "urlopen", side_effect=lambda *_, **__: next(responses)
+            tools, "urlopen", side_effect=fake_open
         ):
-            claimed = json.loads(tools.claim_next_scenario({}, session_id="cron-1"))
+            claimed = json.loads(
+                tools.claim_next_scenario({}, session_id="cron-1", task_id="task-1")
+            )
             completed = json.loads(tools.complete_scenario_development(
-                {"implementation": "implementation"}, session_id="cron-1"
+                {"implementation": "implementation"}, session_id="cron-1", task_id="task-1"
             ))
+            claimed_second = json.loads(
+                tools.claim_next_scenario({}, session_id="cron-2", task_id="task-2")
+            )
             blocked = json.loads(tools.block_scenario_development(
-                {"reason": "missing API"}, session_id="cron-2"
+                {"reason": "missing API"}, session_id="cron-2", task_id="task-2"
             ))
 
         self.assertEqual(claimed["status"], "running")
         self.assertEqual(completed["status"], "developed")
+        self.assertEqual(claimed_second["status"], "running")
         self.assertEqual(blocked["status"], "blocked")
+        self.assertEqual(requests[0].get_header("Authorization"), "Bearer developer-secret")
+        self.assertEqual(requests[1].get_header("X-viki-development-lease"), "lease-1")
+        self.assertEqual(requests[2].get_header("Authorization"), "Bearer developer-secret")
+        self.assertEqual(requests[3].get_header("X-viki-development-lease"), "lease-2")
+        self.assertEqual(tools._development_lease("cron-1", "task-1"), "")
+        self.assertEqual(tools._development_lease("cron-2", "task-2"), "")
         with patch.object(tools, "_runtime_profile", return_value="edit"), patch.object(
             tools, "urlopen"
         ) as open_mock:
             result = json.loads(tools.claim_next_scenario({}, session_id="session-1"))
         self.assertEqual(result["error"]["code"], "profile_forbidden")
         open_mock.assert_not_called()
+
+    def test_developer_tools_require_a_private_claim_context(self):
+        self.assertFalse(tools._has_result(b"not-json"))
+        with patch.object(tools, "_runtime_profile", return_value="developer"), patch.object(
+            tools, "urlopen"
+        ) as open_mock:
+            missing_task = json.loads(
+                tools.claim_next_scenario({}, session_id="cron-1")
+            )
+            missing_claim = json.loads(
+                tools.complete_scenario_development(
+                    {"implementation": "implementation"},
+                    session_id="cron-1",
+                    task_id="task-1",
+                )
+            )
+        self.assertEqual(missing_task["error"]["code"], "missing_runtime_context")
+        self.assertEqual(missing_claim["error"]["code"], "missing_development_claim")
+        open_mock.assert_not_called()
+
+        with patch.object(tools, "_runtime_profile", return_value="developer"), patch.object(
+            tools, "urlopen"
+        ) as open_mock, patch.dict(
+            os.environ, {"VIKI_DEVELOPER_TOOL_TOKEN": ""}
+        ):
+            missing_token = json.loads(
+                tools.claim_next_scenario(
+                    {}, session_id="cron-1", task_id="task-1"
+                )
+            )
+        self.assertEqual(missing_token["error"]["code"], "configuration_error")
+        open_mock.assert_not_called()
+
+        with patch.object(tools, "_runtime_profile", return_value="developer"), patch.object(
+            tools,
+            "urlopen",
+            return_value=FakeResponse(
+                {"result": {"revisionId": "revision-1", "status": "running"}}
+            ),
+        ):
+            missing_lease = json.loads(
+                tools.claim_next_scenario(
+                    {}, session_id="cron-1", task_id="task-1"
+                )
+            )
+        self.assertEqual(missing_lease["error"]["code"], "invalid_upstream_response")
+        self.assertEqual(tools._development_lease("cron-1", "task-1"), "")
 
     def test_history_projection_exposes_only_viki_receipts(self):
         def original(_history):

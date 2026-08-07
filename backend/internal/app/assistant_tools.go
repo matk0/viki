@@ -19,14 +19,19 @@ func (s *Server) internalHandler() http.Handler {
 
 func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if !s.authorizeHermesToolRequest(request) {
-		writeError(w, http.StatusUnauthorized, "invalid_service_credential", "Service credential is not valid.")
-		return
-	}
 	presentedProfile := strings.TrimSpace(request.Header.Get("X-Hermes-Profile"))
 	sessionID := strings.TrimSpace(request.Header.Get("X-Hermes-Session-ID"))
-	if presentedProfile == "developer" || presentedProfile == "viki-developer" {
-		if sessionID == "" {
+	taskID := strings.TrimSpace(request.Header.Get("X-Hermes-Task-ID"))
+	if developerProfile(presentedProfile) {
+		if !s.options.DeveloperEnabled {
+			writeError(w, http.StatusForbidden, "developer_disabled", "Developer execution is disabled.")
+			return
+		}
+		if !s.authorizeDeveloperToolRequest(request) {
+			writeError(w, http.StatusUnauthorized, "invalid_developer_credential", "Developer credential is not valid.")
+			return
+		}
+		if sessionID == "" || taskID == "" {
 			writeError(w, http.StatusForbidden, "invalid_hermes_identity", "Hermes identity is not active.")
 			return
 		}
@@ -35,7 +40,11 @@ func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) 
 			writeError(w, http.StatusForbidden, "tool_not_allowed", "Tool is not allowed for this Hermes profile.")
 			return
 		}
-		s.handleDeveloperTool(w, request, tool)
+		s.handleDeveloperTool(w, request, tool, sessionID, taskID)
+		return
+	}
+	if !s.authorizeHermesToolRequest(request) {
+		writeError(w, http.StatusUnauthorized, "invalid_service_credential", "Service credential is not valid.")
 		return
 	}
 	mode := normalizeHermesProfile(presentedProfile)
@@ -73,8 +82,12 @@ func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) 
 
 func (s *Server) handleDevelopmentPending(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if !s.authorizeHermesToolRequest(request) {
-		writeError(w, http.StatusUnauthorized, "invalid_service_credential", "Service credential is not valid.")
+	if !s.options.DeveloperEnabled {
+		writeJSON(w, http.StatusOK, map[string]bool{"wakeAgent": false})
+		return
+	}
+	if !s.authorizeDeveloperToolRequest(request) {
+		writeError(w, http.StatusUnauthorized, "invalid_developer_credential", "Developer credential is not valid.")
 		return
 	}
 	queued, err := s.repository.HasQueuedScenarioDevelopment(request.Context())
@@ -83,6 +96,10 @@ func (s *Server) handleDevelopmentPending(w http.ResponseWriter, request *http.R
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"wakeAgent": queued})
+}
+
+func developerProfile(profile string) bool {
+	return profile == "developer" || profile == "viki-developer"
 }
 
 func developerToolAllowed(name string) bool {
@@ -94,18 +111,34 @@ func developerToolAllowed(name string) bool {
 	}
 }
 
-func (s *Server) handleDeveloperTool(w http.ResponseWriter, request *http.Request, tool string) {
+func (s *Server) handleDeveloperTool(w http.ResponseWriter, request *http.Request, tool, sessionID, taskID string) {
 	switch tool {
 	case "claim_next_scenario":
 		var input struct{}
 		if !decodeJSON(w, request, &input) {
 			return
 		}
-		task, err := s.repository.ClaimScenarioDevelopment(request.Context())
+		lease, err := newDevelopmentLease()
 		if err != nil {
 			s.handleError(w, err)
 			return
 		}
+		if !s.claims.reserve(sessionID, taskID, lease) {
+			writeError(w, http.StatusConflict, "active_development_claim", "Hermes session already has an active development claim.")
+			return
+		}
+		task, err := s.repository.ClaimScenarioDevelopment(request.Context())
+		if err != nil {
+			s.claims.release(sessionID, taskID, lease)
+			s.handleError(w, err)
+			return
+		}
+		if !s.claims.bind(sessionID, taskID, lease, task.RevisionID) {
+			s.claims.release(sessionID, taskID, lease)
+			writeError(w, http.StatusInternalServerError, "development_claim_failed", "Developer claim could not be bound.")
+			return
+		}
+		w.Header().Set("X-Viki-Development-Lease", lease)
 		writeJSON(w, http.StatusOK, map[string]any{"result": task})
 	case "complete_scenario_development":
 		var input struct {
@@ -119,16 +152,25 @@ func (s *Server) handleDeveloperTool(w http.ResponseWriter, request *http.Reques
 			writeError(w, http.StatusUnprocessableEntity, "invalid_implementation", "implementation is required")
 			return
 		}
+		lease := strings.TrimSpace(request.Header.Get("X-Viki-Development-Lease"))
+		revisionID, claimed := s.claims.begin(sessionID, taskID, lease)
+		if !claimed {
+			writeError(w, http.StatusForbidden, "invalid_development_claim", "Developer task is not currently claimed by this Hermes turn.")
+			return
+		}
 		receipt, err := s.target.Apply(request.Context(), input.Implementation)
 		if err != nil {
+			s.claims.release(sessionID, taskID, lease)
 			s.handleError(w, err)
 			return
 		}
-		development, err := s.repository.CompleteScenarioDevelopment(request.Context(), receipt)
+		development, err := s.repository.CompleteScenarioDevelopment(request.Context(), revisionID, receipt)
 		if err != nil {
+			s.claims.release(sessionID, taskID, lease)
 			s.handleError(w, err)
 			return
 		}
+		s.claims.release(sessionID, taskID, lease)
 		writeJSON(w, http.StatusOK, map[string]any{"result": development})
 	case "block_scenario_development":
 		var input struct {
@@ -142,17 +184,33 @@ func (s *Server) handleDeveloperTool(w http.ResponseWriter, request *http.Reques
 			writeError(w, http.StatusUnprocessableEntity, "invalid_reason", "reason is required")
 			return
 		}
-		development, err := s.repository.BlockScenarioDevelopment(request.Context(), input.Reason)
+		lease := strings.TrimSpace(request.Header.Get("X-Viki-Development-Lease"))
+		revisionID, claimed := s.claims.begin(sessionID, taskID, lease)
+		if !claimed {
+			writeError(w, http.StatusForbidden, "invalid_development_claim", "Developer task is not currently claimed by this Hermes turn.")
+			return
+		}
+		development, err := s.repository.BlockScenarioDevelopment(request.Context(), revisionID, input.Reason)
 		if err != nil {
+			s.claims.retry(sessionID, taskID, lease)
 			s.handleError(w, err)
 			return
 		}
+		s.claims.release(sessionID, taskID, lease)
 		writeJSON(w, http.StatusOK, map[string]any{"result": development})
 	}
 }
 
 func (s *Server) authorizeHermesToolRequest(request *http.Request) bool {
-	expected := strings.TrimSpace(s.options.HermesToolToken)
+	return authorizeServiceCredential(request, s.options.HermesToolToken)
+}
+
+func (s *Server) authorizeDeveloperToolRequest(request *http.Request) bool {
+	return authorizeServiceCredential(request, s.options.DeveloperToolToken)
+}
+
+func authorizeServiceCredential(request *http.Request, expected string) bool {
+	expected = strings.TrimSpace(expected)
 	if expected == "" {
 		return false
 	}

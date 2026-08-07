@@ -487,6 +487,21 @@ func TestAssistantProjectionHelpersCoverBoundaryAndNestedShapes(t *testing.T) {
 			t.Fatalf("tool label %q=%q want=%q", name, got, want)
 		}
 	}
+	for _, test := range []struct {
+		name, eventType, want string
+	}{
+		{name: "search_viki", eventType: "tool.start", want: "searching"},
+		{name: "search_viki", eventType: "tool.complete", want: "searched"},
+		{name: "get_viki_page", eventType: "tool.progress", want: "reading"},
+		{name: "get_viki_revision", eventType: "tool.complete", want: "read"},
+		{name: "apply_viki_draft_changeset", eventType: "tool.start", want: "drafting"},
+		{name: "apply_viki_draft_changeset", eventType: "tool.complete", want: "drafted"},
+		{name: "unexpected", eventType: "tool.start", want: "working"},
+	} {
+		if got := toolActivityState(test.name, test.eventType); got != test.want {
+			t.Fatalf("tool state %q/%q=%q want=%q", test.name, test.eventType, got, test.want)
+		}
+	}
 
 	if got := unwrapToolResult(nil); got != nil {
 		t.Fatalf("nil tool result = %q", got)

@@ -64,6 +64,8 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertNotIn("HERMES_TUI_PASS_SESSION_ID=1", qa_run)
         self.assertIn("python3 /opt/viki-hermes/verify_runtime.py qa", qa_run)
         self.assertIn("HERMES_QA_TOKEN", qa_run)
+        self.assertIn("VIKI_HERMES_TOOL_TOKEN is required", qa_run)
+        self.assertNotIn("viki-local", qa_run)
         self.assertNotIn("viki_edit", qa_run)
 
         self.assertIn("-p viki-edit serve --isolated --host 127.0.0.1 --port 9120", edit_run)
@@ -72,8 +74,13 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertNotIn("HERMES_TUI_PASS_SESSION_ID=1", edit_run)
         self.assertIn("python3 /opt/viki-hermes/verify_runtime.py edit", edit_run)
         self.assertIn("HERMES_EDIT_TOKEN", edit_run)
+        self.assertIn("VIKI_HERMES_TOOL_TOKEN is required", edit_run)
+        self.assertNotIn("viki-local", edit_run)
         self.assertIn("-p viki-developer serve --isolated --host 127.0.0.1 --port 9121", developer_run)
         self.assertIn("HERMES_TUI_TOOLSETS=viki_develop", developer_run)
+        self.assertIn("VIKI_DEVELOPER_ENABLED", developer_run)
+        self.assertIn("VIKI_DEVELOPER_TOOL_TOKEN is required", developer_run)
+        self.assertNotIn("VIKI_HERMES_TOOL_TOKEN", developer_run)
         self.assertIn("hermes -p viki-developer cron create", developer_run)
         self.assertIn("every 1m", developer_run)
         self.assertIn("--script check_queue.py", developer_run)
@@ -81,6 +88,7 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("hermes -p viki-developer gateway run", developer_cron_run)
         self.assertIn("--no-supervise", developer_cron_run)
         self.assertIn("--external-supervisor", developer_cron_run)
+        self.assertIn("VIKI_DEVELOPER_TOOL_TOKEN is required", developer_cron_run)
 
         self.assertIn("private_gateway_proxy.py", proxy_run)
         self.assertIn("9219", proxy)
@@ -111,6 +119,8 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("VIKI_INTERNAL_URL: http://viki:8090", hermes_service)
         self.assertIn("HERMES_QA_TOKEN", hermes_service)
         self.assertIn("HERMES_EDIT_TOKEN", hermes_service)
+        self.assertIn("VIKI_DEVELOPER_ENABLED", hermes_service)
+        self.assertIn("VIKI_DEVELOPER_TOOL_TOKEN", hermes_service)
         self.assertNotIn("OPENAI_API_KEY:?", hermes_service)
 
         viki_service = compose.split("\n  viki:\n", 1)[1].split("\n  hermes:\n", 1)[0]
@@ -118,6 +128,10 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("HERMES_EDIT_WS_URL: ws://hermes:9220/api/ws", viki_service)
         self.assertIn("VIKI_INTERNAL_ADDRESS: 0.0.0.0:8090", viki_service)
         self.assertIn("DEVELOPMENT_TARGET_URL: http://mock-target:8091", viki_service)
+        self.assertIn("VIKI_DEVELOPER_ENABLED", viki_service)
+        self.assertIn("VIKI_DEVELOPER_TOOL_TOKEN", viki_service)
+        self.assertIn("${VIKI_HOST_BIND:-127.0.0.1}:${VIKI_HOST_PORT:-8080}:8080", viki_service)
+        self.assertNotIn("viki-local", viki_service)
         self.assertFalse(
             any(line.strip().startswith("OPENAI_") for line in viki_service.splitlines())
         )
@@ -125,6 +139,8 @@ class RuntimeContractTest(unittest.TestCase):
         mock_target = compose.split("\n  mock-target:\n", 1)[1].split("\n  hermes:\n", 1)[0]
         self.assertIn("nginx:1.29.5-alpine", mock_target)
         self.assertNotIn("ports:", mock_target)
+        self.assertIn("DEVELOPMENT_TARGET_TOKEN", mock_target)
+        self.assertIn("default.conf.template", mock_target)
 
 
 if __name__ == "__main__":

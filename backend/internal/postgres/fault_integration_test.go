@@ -1043,17 +1043,18 @@ func TestScenarioDevelopmentDatabaseFailures(t *testing.T) {
 	t.Run("block and missing running task", func(t *testing.T) {
 		fixture := newFaultFixture(t)
 		queueFaultScenario(t, fixture)
-		if _, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx); err != nil {
+		task, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx)
+		if err != nil {
 			t.Fatal(err)
 		}
-		development, err := fixture.repository.BlockScenarioDevelopment(fixture.ctx, "Target API missing")
+		development, err := fixture.repository.BlockScenarioDevelopment(fixture.ctx, task.RevisionID, "Target API missing")
 		if err != nil || development.Status != model.DevelopmentBlocked || development.Detail != "Target API missing" {
 			t.Fatalf("development=%+v err=%v", development, err)
 		}
 		if _, err := fixture.pool.Exec(fixture.ctx, `UPDATE scenario_developments SET status = 'blocked' WHERE status = 'running'`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixture.repository.BlockScenarioDevelopment(fixture.ctx, "again"); !errors.Is(err, store.ErrNotFound) {
+		if _, err := fixture.repository.BlockScenarioDevelopment(fixture.ctx, task.RevisionID, "again"); !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("missing running task error=%v, want not found", err)
 		}
 	})
@@ -1061,11 +1062,12 @@ func TestScenarioDevelopmentDatabaseFailures(t *testing.T) {
 	t.Run("finish query", func(t *testing.T) {
 		fixture := newFaultFixture(t)
 		queueFaultScenario(t, fixture)
-		if _, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx); err != nil {
+		task, err := fixture.repository.ClaimScenarioDevelopment(fixture.ctx)
+		if err != nil {
 			t.Fatal(err)
 		}
 		fixture.fault.activate("query_row", "UPDATE scenario_developments", 1)
-		_, err := fixture.repository.CompleteScenarioDevelopment(fixture.ctx, "receipt")
+		_, err = fixture.repository.CompleteScenarioDevelopment(fixture.ctx, task.RevisionID, "receipt")
 		requireInjectedFailure(t, err)
 	})
 
@@ -1134,6 +1136,8 @@ func TestPageDetailPropagatesNestedReadFailures(t *testing.T) {
 		}},
 		{name: "review objection iteration", method: "rows_error", contains: "FROM objections o", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string { _ = saveFaultDraft(t, f); return f.pageID }},
 		{name: "feature children query", method: "query", contains: "p.parent_id = $2", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string { return createFaultFeature(t, f).Page.ID }},
+		{name: "feature children iteration", method: "rows_error", contains: "p.parent_id = $2", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string { return createFaultFeature(t, f).Page.ID }},
+		{name: "feature development progress", method: "query_row", contains: "count(*) FILTER", occurrence: 1, setup: func(t *testing.T, f *faultFixture) string { return createFaultFeature(t, f).Page.ID }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

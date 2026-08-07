@@ -119,6 +119,8 @@ func newRuntimeApplication(database runtimeDatabase, gateway runtimeGateway, cfg
 		SessionTTL:             cfg.SessionTTL,
 		FrontendDir:            cfg.FrontendDir,
 		HermesToolToken:        cfg.HermesToolToken,
+		DeveloperEnabled:       cfg.DeveloperEnabled,
+		DeveloperToolToken:     cfg.DeveloperToolToken,
 		HandoffSigningKey:      cfg.HermesToolToken,
 		DevelopmentTargetURL:   cfg.DevelopmentTargetURL,
 		DevelopmentTargetToken: cfg.DevelopmentTargetToken,

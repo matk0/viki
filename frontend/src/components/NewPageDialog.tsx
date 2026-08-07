@@ -20,7 +20,6 @@ export function NewPageDialog({ initialKind, parentId, onClose }: { initialKind:
   const kind = initialKind
   const [conceptKind, setConceptKind] = useState<'noun' | 'verb'>('noun')
   const [title, setTitle] = useState('')
-  const [slug, setSlug] = useState('')
   const [steps, setSteps] = useState<Step[]>([
     { keyword: 'given', text: '', arguments: [] },
     { keyword: 'when', text: '', arguments: [] },
@@ -28,9 +27,6 @@ export function NewPageDialog({ initialKind, parentId, onClose }: { initialKind:
   ])
   const [stepDefinitions, setStepDefinitions] = useState<StepDefinition[]>([])
   const [scenarioTitle, setScenarioTitle] = useState('')
-  const [scenarioSlug, setScenarioSlug] = useState('')
-  const [customSlug, setCustomSlug] = useState(false)
-  const [customScenarioSlug, setCustomScenarioSlug] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -48,14 +44,14 @@ export function NewPageDialog({ initialKind, parentId, onClose }: { initialKind:
       steps: kind === 'scenario' ? steps : [],
     }
     const initialScenario = kind === 'feature' ? {
-      slug: scenarioSlug,
+      slug: slugify(scenarioTitle),
       content: {
         title: scenarioTitle.trim(), bodyMd: '', references: [],
         steps,
       },
     } : undefined
     try {
-      const result = await api.createPage({ kind, ...(kind === 'concept' ? { conceptKind } : {}), ...(kind === 'scenario' ? { parentId } : {}), ...(initialScenario ? { initialScenario } : {}), slug, content })
+      const result = await api.createPage({ kind, ...(kind === 'concept' ? { conceptKind } : {}), ...(kind === 'scenario' ? { parentId } : {}), ...(initialScenario ? { initialScenario } : {}), slug: slugify(title), content })
       await reloadPages(); onClose(); navigate(`/page/${result.page.id}`)
     } catch (reason) { setError(reason instanceof Error ? reason.message : t('new.failed')) }
     finally { setSaving(false) }
@@ -64,12 +60,10 @@ export function NewPageDialog({ initialKind, parentId, onClose }: { initialKind:
     <form className="modal-card new-page-dialog" role="dialog" aria-modal="true" aria-labelledby="new-page-dialog-title" onSubmit={(event) => void submit(event)}>
       <div className="modal-heading"><div><span className="eyebrow">{t('new.eyebrow')}</span><h2 id="new-page-dialog-title">{kind === 'concept' ? t('new.createConcept') : kind === 'feature' ? t('new.createFeature') : t('new.createScenario')}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label={t('common.close')}><X size={18} /></button></div>
       {kind === 'concept' && <div className="select-field"><span>{t('new.conceptKind')}</span><VikiSelect ariaLabel={t('new.conceptKind')} listboxLabel={t('new.conceptKinds')} value={conceptKind} onChange={(value) => setConceptKind(value as 'noun' | 'verb')} options={[{ value: 'noun', label: t('new.noun') }, { value: 'verb', label: t('new.verb') }]} /></div>}
-      <label>{t('new.title')}<input autoFocus required value={title} onChange={(event) => { setTitle(event.target.value); if (!customSlug) setSlug(slugify(event.target.value)) }} placeholder={t('new.titlePlaceholder')} /></label>
-      <label>Slug<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={slug} onChange={(event) => { setCustomSlug(true); setSlug(event.target.value) }} placeholder="service-availability" /><small>{t('new.slugHelp')}</small></label>
+      <label>{t('new.title')}<input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t('new.titlePlaceholder')} /></label>
       {kind === 'feature' && <div className="scenario-step-fields initial-scenario-fields">
         <h3>{t('new.initialScenario')}</h3>
-        <label>{t('new.scenarioTitle')}<input required value={scenarioTitle} onChange={(event) => { setScenarioTitle(event.target.value); if (!customScenarioSlug) setScenarioSlug(slugify(event.target.value)) }} /></label>
-        <label>{t('new.scenarioSlug')}<input aria-label={t('new.scenarioSlug')} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={scenarioSlug} onChange={(event) => { setCustomScenarioSlug(true); setScenarioSlug(event.target.value) }} /><small>{t('new.slugHelp')}</small></label>
+        <label>{t('new.scenarioTitle')}<input required value={scenarioTitle} onChange={(event) => setScenarioTitle(event.target.value)} /></label>
         <BDDStepsEditor steps={steps} definitions={stepDefinitions} onChange={setSteps} />
       </div>}
       {kind === 'scenario' && <div className="scenario-step-fields">

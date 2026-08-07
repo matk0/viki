@@ -15,6 +15,7 @@ export function ReviewPanel({ detail, revision, onChanged, onCreateVersion }: { 
   const [error, setError] = useState('')
   const review = detail.reviewStates.find((entry) => entry.revisionId === revision.id)
   const development = detail.development?.revisionId === revision.id ? detail.development : undefined
+  const developmentProgress = detail.page.kind === 'feature' ? detail.developmentProgress : undefined
   const blockers = review?.blockers ?? []
   const parentFeatureBlockers = blockers.filter((blocker): blocker is ParentFeatureReviewBlocker => blocker.type === 'parent_feature')
   const run = async (action: () => Promise<unknown>) => {
@@ -32,7 +33,7 @@ export function ReviewPanel({ detail, revision, onChanged, onCreateVersion }: { 
       <div className="panel-heading compact"><div><h2><ClipboardCheck size={17} />{t('page.review')}</h2></div></div>
       <div className={`review-panel-body${review.state === 'approved' ? '' : ' has-actions'}`}>
         <div className="review-panel-content">
-          <ReviewStatusList state={review.state} development={development} onCreateVersion={onCreateVersion} blockedContent={review.state !== 'approved' && (detail.objections.length > 0 || parentFeatureBlockers.length > 0) ? <section className={`review-decision ${review.state}`}>
+          <ReviewStatusList state={review.state} development={development} developmentProgress={developmentProgress} onCreateVersion={onCreateVersion} blockedContent={review.state !== 'approved' && (detail.objections.length > 0 || parentFeatureBlockers.length > 0) ? <section className={`review-decision ${review.state}`}>
             {detail.objections.length > 0 && <div className="review-objections" aria-label={t('review.objections')}><h3>{t('review.objections')}</h3>{detail.objections.map((objection) => <ObjectionCard key={objection.id} objection={objection} busy={busy} onResolve={() => void run(() => api.resolveObjection(objection.id))} />)}</div>}
             {parentFeatureBlockers.length > 0 && <div className="review-blockers" aria-label={t('review.blockers')}><h3>{t('review.blockers')}</h3>{parentFeatureBlockers.map((blocker) => <ParentFeatureBlocker key={blocker.id} blocker={blocker} />)}</div>}
           </section> : undefined} />
@@ -54,7 +55,7 @@ export function ReviewPanel({ detail, revision, onChanged, onCreateVersion }: { 
   </>
 }
 
-function ReviewStatusList({ state, development, blockedContent, onCreateVersion }: { state: 'approved' | 'ready' | 'blocked'; development?: NonNullable<PageDetail['development']>; blockedContent?: ReactNode; onCreateVersion?: () => void }) {
+function ReviewStatusList({ state, development, developmentProgress, blockedContent, onCreateVersion }: { state: 'approved' | 'ready' | 'blocked'; development?: NonNullable<PageDetail['development']>; developmentProgress?: NonNullable<PageDetail['developmentProgress']>; blockedContent?: ReactNode; onCreateVersion?: () => void }) {
   const { t } = useI18n()
   const statuses = [
     { state: 'blocked', label: t('review.statusBlocked'), icon: Ban },
@@ -72,6 +73,16 @@ function ReviewStatusList({ state, development, blockedContent, onCreateVersion 
       return <div className={className} role="listitem" aria-current={state === status.state ? 'step' : undefined} aria-disabled={disabled || undefined} key={status.state}><StatusLineLabel icon={status.icon} label={status.label} />{status.state === 'approved' && state === 'approved' && onCreateVersion && <button type="button" className="review-new-version" onClick={onCreateVersion}>{t('page.newVersion')}</button>}</div>
     })}
     {development && <div className={`review-status-line development development-${development.status} current`} role="listitem" aria-current="step"><StatusLineLabel icon={developmentStatusIcons[development.status]} label={developmentLabel(development.status, t)} /></div>}
+    {developmentProgress && <FeatureDevelopmentStatus progress={developmentProgress} />}
+  </div>
+}
+
+function FeatureDevelopmentStatus({ progress }: { progress: NonNullable<PageDetail['developmentProgress']> }) {
+  const { t } = useI18n()
+  const complete = progress.developed === progress.total
+  return <div className={`review-status-line development development-${complete ? 'developed' : 'running'} current`} role="listitem" aria-current="step">
+    <StatusLineLabel icon={complete ? CircleCheck : Hammer} label={complete ? t('development.developed') : t('development.running')} />
+    <span className="review-status-progress">{progress.developed}/{progress.total}</span>
   </div>
 }
 
