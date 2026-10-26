@@ -1,0 +1,51 @@
+openapi: 3.1.0
+info:
+  title: Private repository synchronization
+  version: 1.0.0
+  description: Internal listener only. A separate snapshot-import service credential is required; browser sessions and Hermes tokens do not authorize imports.
+servers:
+  - url: http://viki:8090
+security:
+  - SnapshotImportToken: []
+paths:
+  /internal/v1/repository-sync:
+    get:
+      responses:
+        '200':
+          description: Current workspace authority and last good import/poll state.
+          content:
+            application/json:
+              schema: { $ref: './openapi.yaml#/components/schemas/WorkspaceSyncStatus' }
+        '401': { description: Invalid dedicated import credential. }
+  /internal/v1/repository-snapshots:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../backend/internal/specsync/contract/snapshot-v1.schema.json' }
+      responses:
+        '200': { description: Atomic import committed, or exact duplicate receipt confirmed. }
+        '401': { description: Invalid dedicated import credential. }
+        '409': { description: Stale or conflicting immutable run identity; last good snapshot retained. }
+        '422': { description: Invalid schema, hashes, exact source/parsed fields, results or live eligibility; last good snapshot retained. }
+  /internal/v1/repository-sync/status:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [error]
+              properties:
+                error:
+                  type: string
+                  enum: ['', github_authentication_failed, github_unavailable, artifact_unavailable, candidate_rejected, import_unavailable, no_eligible_main_run]
+      responses:
+        '200': { description: Poll completed; actual freshness/error recorded without replacing the baseline. }
+        '401': { description: Invalid dedicated import credential. }
+components:
+  securitySchemes:
+    SnapshotImportToken: { type: http, scheme: bearer }

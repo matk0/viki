@@ -15,6 +15,11 @@ import (
 )
 
 func (r *Repository) ApproveRevision(ctx context.Context, organizationID, userID, revisionID string) (model.PageDetail, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return model.PageDetail{}, err
+	} else if managed {
+		return model.PageDetail{}, store.ErrReadOnly
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return model.PageDetail{}, err

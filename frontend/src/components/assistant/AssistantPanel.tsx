@@ -16,10 +16,12 @@ import { Link } from '../../router'
 import { VikiSelect } from '../VikiSelect'
 import { Markdown, Spinner } from '../ui'
 import { useI18n } from '../../i18n'
+import { useWorkspace } from '../../workspace'
 
 export function AssistantPanel() {
   const { t } = useI18n()
   const assistant = useAssistant()
+  const { readOnly } = useWorkspace()
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const element = scrollRef.current!
@@ -52,7 +54,7 @@ export function AssistantPanel() {
     <div className="assistant-controls">
       <div className="mode-switch">
         <button type="button" disabled={active} className={assistant.mode === 'qa' ? 'active' : ''} onClick={() => assistant.setMode('qa')}><MessageCircleQuestion size={15} />{t('assistant.qa')}</button>
-        <button type="button" disabled={active} className={assistant.mode === 'edit' ? 'active' : ''} onClick={() => assistant.setMode('edit')}><FilePenLine size={15} />{t('assistant.edit')}</button>
+        <button type="button" hidden={readOnly} disabled={active || readOnly} className={assistant.mode === 'edit' ? 'active' : ''} onClick={() => assistant.setMode('edit')}><FilePenLine size={15} />{t('assistant.edit')}</button>
       </div>
     </div>
 

@@ -41,7 +41,7 @@ def _tool_candidates(name, payload):
     if name == "search_viki":
         candidates = payload.get("documents")
     elif name == "get_viki_page":
-        candidates = [payload.get("approvedRevision"), payload.get("draftRevision")]
+        candidates = [payload.get("approvedRevision"), payload.get("draftRevision"), payload.get("repositoryRevision")]
     elif name == "get_viki_revision":
         candidates = [payload]
     elif name == "apply_viki_draft_changeset":

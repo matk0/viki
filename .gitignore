@@ -12,3 +12,5 @@ work/
 coverage/
 __pycache__/
 *.pyc
+
+.sync.env

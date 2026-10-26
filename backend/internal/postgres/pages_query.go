@@ -70,6 +70,11 @@ func scanPage(row scanner) (model.Page, error) {
 }
 
 func (r *Repository) ListPages(ctx context.Context, organizationID string, kind *model.PageKind) ([]model.Page, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return nil, err
+	} else if managed {
+		return r.RepositoryPages(ctx, organizationID, kind)
+	}
 	query := pageSelect + ` WHERE p.organization_id = $1`
 	args := []any{organizationID}
 	if kind != nil {
@@ -94,6 +99,11 @@ func (r *Repository) ListPages(ctx context.Context, organizationID string, kind 
 }
 
 func (r *Repository) SearchPages(ctx context.Context, organizationID string, options model.SearchOptions) ([]model.SearchResult, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return nil, err
+	} else if managed {
+		return r.SearchRepositoryPages(ctx, organizationID, options)
+	}
 	if options.Limit <= 0 || options.Limit > 100 {
 		options.Limit = 30
 	}
@@ -178,6 +188,11 @@ func (r *Repository) SearchPages(ctx context.Context, organizationID string, opt
 }
 
 func (r *Repository) PageDetail(ctx context.Context, organizationID, pageID string) (model.PageDetail, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return model.PageDetail{}, err
+	} else if managed {
+		return r.RepositoryPageDetail(ctx, organizationID, pageID)
+	}
 	page, err := scanPage(r.pool.QueryRow(ctx, pageSelect+` WHERE p.organization_id = $1 AND p.id = $2`, organizationID, pageID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.PageDetail{}, store.ErrNotFound
@@ -344,6 +359,11 @@ func (r *Repository) reviewStates(ctx context.Context, organizationID string, de
 }
 
 func (r *Repository) Revision(ctx context.Context, organizationID, revisionID string) (model.Revision, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return model.Revision{}, err
+	} else if managed {
+		return r.RepositoryRevision(ctx, organizationID, revisionID)
+	}
 	var valid bool
 	if err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS(

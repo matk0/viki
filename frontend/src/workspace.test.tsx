@@ -3,14 +3,14 @@ import { act, type ReactNode } from 'react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { useWorkspace, WorkspaceProvider } from './workspace'
 
-const mocks = vi.hoisted(() => ({ pages: vi.fn() }))
+const mocks = vi.hoisted(() => ({ pages: vi.fn(), workspaceSyncStatus: vi.fn() }))
 vi.mock('./api/client', () => ({ api: mocks }))
 
 function wrapper({ children }: { children: ReactNode }) {
   return <WorkspaceProvider>{children}</WorkspaceProvider>
 }
 
-beforeEach(() => mocks.pages.mockReset())
+beforeEach(() => { mocks.pages.mockReset(); mocks.workspaceSyncStatus.mockResolvedValue({mode:'human_governed', pageCount:0, scenarioCount:0, stale:false}) })
 
 it('loads and reloads pages while controlling assistant and new-page state', async () => {
   mocks.pages
@@ -46,4 +46,36 @@ it('clears loading even when page loading fails', async () => {
 
 it('requires the provider', () => {
   expect(() => renderHook(() => useWorkspace())).toThrow('useWorkspace must be used inside WorkspaceProvider')
+})
+
+it('enforces Git-managed controls and preserves the last good catalogue on failed refresh', async () => {
+ mocks.workspaceSyncStatus.mockResolvedValue({mode:'git_managed',pageCount:1,scenarioCount:0,stale:false})
+ mocks.pages.mockResolvedValue({pages:[{id:'canonical',title:'Canonical'}]})
+ const {result}=renderHook(()=>useWorkspace(),{wrapper})
+ await waitFor(()=>expect(result.current.pages[0]?.id).toBe('canonical'))
+ expect(result.current.readOnly).toBe(true)
+ act(()=>result.current.openNewPage('concept'))
+ expect(result.current.newPageKind).toBeNull()
+ mocks.workspaceSyncStatus.mockRejectedValueOnce(new Error('offline'))
+ await act(()=>result.current.reloadPages())
+ expect(result.current.pages[0]?.id).toBe('canonical')
+ expect(result.current.syncError).toContain('could not be checked')
+})
+
+it('polls automatically and ignores success/failure from superseded in-flight refreshes', async () => {
+ vi.useFakeTimers()
+ const pending: {resolve:(value:{pages:never[]})=>void,reject:(error:Error)=>void}[]=[]
+ mocks.pages.mockImplementation(()=>new Promise<{pages:never[]}>((resolve,reject)=>pending.push({resolve,reject})))
+ const {result,unmount}=renderHook(()=>useWorkspace(),{wrapper})
+ await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
+ expect(pending).toHaveLength(2)
+ await act(async()=>pending[0].resolve({pages:[]}))
+ expect(result.current.loadingPages).toBe(true)
+ await act(async()=>{await vi.advanceTimersByTimeAsync(30000)})
+ expect(pending).toHaveLength(3)
+ await act(async()=>pending[1].reject(new Error('old offline')))
+ expect(result.current.syncError).toBe('')
+ await act(async()=>pending[2].resolve({pages:[]}))
+ expect(result.current.loadingPages).toBe(false)
+ unmount();vi.useRealTimers()
 })

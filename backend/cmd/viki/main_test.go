@@ -310,3 +310,35 @@ func TestRunClosesResourcesAndServers(t *testing.T) {
 		}
 	})
 }
+
+func TestRunConfiguresRepositoryAuthorityBeforeServing(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		counters := &runtimeCounters{}
+		deps := baseDependencies(counters)
+		open := deps.openDatabase
+		called := false
+		deps.openDatabase = func(ctx context.Context, url string) (runtimeDatabase, error) {
+			db, err := open(ctx, url)
+			db.configureRepository = func(_ context.Context, repository string) error {
+				called = true
+				if repository != "https://github.com/matk0/vozokany" {
+					t.Fatal(repository)
+				}
+				if failure {
+					return errStartupTest
+				}
+				return nil
+			}
+			return db, err
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		err := run(ctx, config.Config{GitRepository: "https://github.com/matk0/vozokany"}, testLogger(), deps)
+		if !called || failure != errors.Is(err, errStartupTest) {
+			t.Fatal(called, err)
+		}
+		if failure && counters.served != 0 {
+			t.Fatal("served before authority setup")
+		}
+	}
+}

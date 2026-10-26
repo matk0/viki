@@ -13,6 +13,11 @@ import (
 )
 
 func (r *Repository) ApplyAIChangeSet(ctx context.Context, organizationID, userID string, mutation model.AssistantMutationContext, changeSet model.AIChangeSet) ([]model.Revision, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return nil, err
+	} else if managed {
+		return nil, store.ErrReadOnly
+	}
 	if strings.TrimSpace(changeSet.Clarification) != "" {
 		return []model.Revision{}, nil
 	}

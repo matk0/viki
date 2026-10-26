@@ -601,3 +601,14 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 @media (prefers-reduced-motion: reduce) {
   .assistant-turn-star, .assistant-turn-animation > i, .assistant-turn-timeline > div.active > span { animation: none; }
 }
+
+.repository-sync { display: flex; flex-direction: column; gap: .4rem; padding: 1rem 2rem; border-bottom: 1px solid #ddd; background: #fafafa; overflow-wrap: anywhere; }
+.repository-sync.error { border-left: 3px solid #666; }
+.repository-sync small, .repository-provenance small { color: #666; }
+.repository-card, .repository-provenance { display: flex; flex-direction: column; gap: .6rem; padding: 1.2rem; margin: 1rem 0; overflow-wrap: anywhere; }
+.repository-provenance { border: 1px solid #ddd; border-radius: .6rem; }
+.repository-scenario { padding-left: 1rem; }
+.repository-gherkin { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #ddd; background: #fafafa; padding: 1.2rem; border-radius: .4rem; }
+.repository-document h2 { margin-top: 2rem; }
+.repository-document section button { margin: .3rem; }
+.status-badge.repository_baseline { color: #444; background: #eee; }

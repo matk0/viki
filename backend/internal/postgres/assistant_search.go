@@ -8,6 +8,11 @@ import (
 )
 
 func (r *Repository) Retrieve(ctx context.Context, organizationID, query string, includeDrafts bool, limit int) ([]model.RetrievedDocument, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return nil, err
+	} else if managed {
+		return r.RetrieveRepositoryPages(ctx, organizationID, query, limit)
+	}
 	if limit <= 0 || limit > 20 {
 		limit = 10
 	}

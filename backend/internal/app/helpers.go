@@ -52,6 +52,17 @@ func (s *Server) requireAuth(next authHandler) http.HandlerFunc {
 				return
 			}
 		}
+		if request.Method != http.MethodGet && (strings.HasPrefix(request.URL.Path, "/api/v1/pages") || strings.HasPrefix(request.URL.Path, "/api/v1/revisions") || strings.HasPrefix(request.URL.Path, "/api/v1/comments") || strings.HasPrefix(request.URL.Path, "/api/v1/objections")) {
+			status, err := s.workspaceStatus(request.Context(), session.OrganizationID)
+			if err != nil {
+				s.handleError(w, err)
+				return
+			}
+			if status.Mode == "git_managed" {
+				s.handleError(w, store.ErrReadOnly)
+				return
+			}
+		}
 		next(w, request, authState{Session: session, TokenHash: tokenHash})
 	}
 }
@@ -83,6 +94,8 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 func (s *Server) handleError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, store.ErrReadOnly):
+		writeError(w, http.StatusForbidden, "git_managed_read_only", err.Error())
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Záznam sa nenašiel.")
 	case errors.Is(err, store.ErrUnauthorized):

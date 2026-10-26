@@ -3,10 +3,13 @@ module viki
 go 1.26.0
 
 require (
+	github.com/cucumber/gherkin/go/v36 v36.1.0
+	github.com/cucumber/messages/go/v30 v30.1.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/oapi-codegen/runtime v1.1.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/crypto v0.54.0
 )
 

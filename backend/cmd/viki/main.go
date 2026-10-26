@@ -22,10 +22,11 @@ import (
 const databaseOpenAttempts = 30
 
 type runtimeDatabase struct {
-	repository        store.Repository
-	migrate           func(context.Context) error
-	ensureInitialUser func(context.Context, string) error
-	close             func()
+	configureRepository func(context.Context, string) error
+	repository          store.Repository
+	migrate             func(context.Context) error
+	ensureInitialUser   func(context.Context, string) error
+	close               func()
 }
 
 type runtimeGateway struct {
@@ -98,10 +99,11 @@ func newRuntimeDatabase(ctx context.Context, databaseURL string) (runtimeDatabas
 		return runtimeDatabase{}, err
 	}
 	return runtimeDatabase{
-		repository:        repository,
-		migrate:           repository.Migrate,
-		ensureInitialUser: repository.EnsureInitialUser,
-		close:             repository.Close,
+		repository:          repository,
+		migrate:             repository.Migrate,
+		ensureInitialUser:   repository.EnsureInitialUser,
+		configureRepository: repository.ConfigureInitialRepositoryWorkspace,
+		close:               repository.Close,
 	}, nil
 }
 
@@ -116,6 +118,7 @@ func newRuntimeGateway(ctx context.Context, managerConfig hermes.ManagerConfig) 
 func newRuntimeApplication(database runtimeDatabase, gateway runtimeGateway, cfg config.Config, logger *slog.Logger) runtimeApplication {
 	application := app.NewApplication(database.repository, gateway.gateway, app.Options{
 		CookieSecure:           cfg.CookieSecure,
+		SnapshotImportToken:    cfg.SnapshotImportToken,
 		SessionTTL:             cfg.SessionTTL,
 		FrontendDir:            cfg.FrontendDir,
 		HermesToolToken:        cfg.HermesToolToken,
@@ -145,6 +148,11 @@ func run(ctx context.Context, cfg config.Config, logger *slog.Logger, dependenci
 		return fmt.Errorf("initial user setup failed: %w", err)
 	}
 
+	if database.configureRepository != nil {
+		if err := database.configureRepository(ctx, cfg.GitRepository); err != nil {
+			return fmt.Errorf("repository workspace setup failed: %w", err)
+		}
+	}
 	gateway, err := dependencies.newGateway(ctx, hermes.ManagerConfig{
 		QA: hermes.ProfileConfig{
 			URL: cfg.HermesQAWSURL, Token: cfg.HermesQAToken,

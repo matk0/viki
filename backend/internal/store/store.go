@@ -9,6 +9,7 @@ import (
 )
 
 var (
+	ErrReadOnly         = errors.New("workspace specifications are managed in Git and are read-only")
 	ErrNotFound         = errors.New("not found")
 	ErrConflict         = errors.New("conflict")
 	ErrUnauthorized     = errors.New("unauthorized")

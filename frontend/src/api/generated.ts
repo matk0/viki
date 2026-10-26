@@ -84,6 +84,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["workspaceSyncStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pages": {
         parameters: {
             query?: never;
@@ -383,6 +399,40 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        WorkspaceSyncStatus: {
+            /** @enum {string} */
+            mode: "human_governed" | "git_managed";
+            repository?: string;
+            /** Format: date-time */
+            lastCheckedAt?: string;
+            /** Format: date-time */
+            lastImportedAt?: string;
+            lastError?: string;
+            /** Format: date-time */
+            lastErrorAt?: string;
+            commit?: string;
+            runId?: string;
+            runAttempt?: number;
+            contentHash?: string;
+            pageCount: number;
+            scenarioCount: number;
+            stale: boolean;
+        };
+        RepositorySource: {
+            externalId: string;
+            repository: string;
+            commit: string;
+            contentHash: string;
+            path: string;
+            content: string;
+            runId: string;
+            runAttempt: number;
+            verifiedCommit: string;
+            /** @enum {string} */
+            result: "passed";
+            /** Format: date-time */
+            importedAt: string;
+        };
         /** @enum {string} */
         HealthStatus: "ok";
         /** @enum {string} */
@@ -390,7 +440,7 @@ export interface components {
         /** @enum {string} */
         ConceptKind: "noun" | "verb";
         /** @enum {string} */
-        RevisionStatus: "draft" | "approved" | "superseded";
+        RevisionStatus: "draft" | "approved" | "superseded" | "repository_baseline";
         /** @enum {string} */
         DevelopmentStatus: "queued" | "running" | "developed" | "blocked";
         /** @enum {string} */
@@ -418,11 +468,16 @@ export interface components {
         };
         Page: {
             /** Format: uuid */
+            repositoryRevisionId?: string;
+            repositorySource?: components["schemas"]["RepositorySource"];
+            archived?: boolean;
+            /** Format: uuid */
             id: string;
             kind: components["schemas"]["PageKind"];
             conceptKind?: components["schemas"]["ConceptKind"];
             /** Format: uuid */
             parentId?: string;
+            /** @description Human slug or stable external repository ID. */
             slug: string;
             title: string;
             /** Format: uuid */
@@ -474,6 +529,7 @@ export interface components {
             references: components["schemas"]["PageReference"][];
         };
         Revision: components["schemas"]["RevisionContent"] & {
+            repositorySource?: components["schemas"]["RepositorySource"];
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -552,6 +608,7 @@ export interface components {
         };
         PageDetail: {
             page: components["schemas"]["Page"];
+            repositoryRevision?: components["schemas"]["Revision"];
             approvedRevision?: components["schemas"]["Revision"];
             draftRevision?: components["schemas"]["Revision"];
             revisions: components["schemas"]["RevisionSummary"][];
@@ -842,6 +899,27 @@ export interface operations {
                     "application/json": {
                         user: components["schemas"]["User"];
                     };
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    workspaceSyncStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace authority, last good snapshot and actual polling freshness. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceSyncStatus"];
                 };
             };
             401: components["responses"]["Error"];

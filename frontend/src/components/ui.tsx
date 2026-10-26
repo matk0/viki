@@ -15,11 +15,12 @@ export function EmptyState({ icon, title, body, action }: { icon?: ReactNode; ti
 
 export function StatusBadge({ status, page }: { status?: RevisionStatus; page?: Page }) {
   const { t } = useI18n()
-  const resolved: RevisionStatus = status ?? (page?.hasDraft ? 'draft' : page?.approved ? 'approved' : 'draft')
+  const resolved: RevisionStatus = status ?? (page?.repositoryRevisionId ? 'repository_baseline' : page?.hasDraft ? 'draft' : page?.approved ? 'approved' : 'draft')
   return <span className={`status-badge ${resolved}`}>{statusLabel(resolved, t)}</span>
 }
 
 export function statusLabel(status: RevisionStatus, t: Translate): string {
+  if (status === 'repository_baseline') return 'Repository baseline'
   return status === 'approved' ? t('status.approved') : status === 'superseded' ? t('status.superseded') : t('status.draft')
 }
 

@@ -630,6 +630,13 @@ class VikiPluginTest(unittest.TestCase):
         self.assertEqual(projected[6]["result"], {"citations": [], "drafts": []})
         self.assertNotIn("result", projected[7])
 
+    def test_history_projection_cites_repository_baselines_without_human_approval(self):
+        result = history_projection._safe_result("get_viki_page", {"repositoryRevision": {
+            "id": "repo-revision", "pageId": "repo-page", "title": "English business rule",
+            "status": "repository_baseline", "repositorySource": {"commit": "source-sha"},
+        }})
+        self.assertEqual(result, {"citations": [{"revisionId": "repo-revision", "pageId": "repo-page", "pageTitle": "English business rule", "draft": False}], "drafts": []})
+
     def test_history_projection_installation_fails_closed(self):
         missing_gateway = ModuleNotFoundError("missing", name="tui_gateway")
         with patch.object(

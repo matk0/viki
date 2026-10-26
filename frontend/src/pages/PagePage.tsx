@@ -6,6 +6,7 @@ import { Link, useRouter } from '../router'
 import { useWorkspace } from '../workspace'
 import { PageIcon } from '../components/PageIcon'
 import { EmptyState, formatDate, kindLabel, Markdown, Spinner, StatusBadge, statusLabel } from '../components/ui'
+import { RepositoryPage } from '../components/RepositoryWorkspace'
 import { BDDSteps } from '../components/page/BDDStepsEditor'
 import { PageEditor } from '../components/page/PageEditor'
 import { DiscussionPanel, ReviewPanel } from '../components/page/ReviewPanel'
@@ -13,6 +14,10 @@ import { RevisionHistory } from '../components/page/RevisionHistory'
 import { translate, useI18n, type Locale } from '../i18n'
 
 export function PagePage({ pageId }: { pageId: string }) {
+ const { syncStatus } = useWorkspace()
+ return syncStatus?.mode === 'git_managed' ? <RepositoryPage pageId={pageId} /> : <HumanPagePage pageId={pageId} />
+}
+function HumanPagePage({ pageId }: { pageId: string }) {
   const { locale, t } = useI18n()
   const { search } = useRouter()
   const requestedRevisionId = search.get('revision')

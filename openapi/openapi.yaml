@@ -67,6 +67,17 @@ paths:
                 properties:
                   user: { $ref: "#/components/schemas/User" }
         "401": { $ref: "#/components/responses/Error" }
+  /api/v1/workspace/sync:
+    get:
+      tags: [operations]
+      operationId: workspaceSyncStatus
+      responses:
+        "200":
+          description: Workspace authority, last good snapshot and actual polling freshness.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceSyncStatus" }
+        "401": { $ref: "#/components/responses/Error" }
   /api/v1/pages:
     get:
       tags: [wiki]
@@ -431,6 +442,38 @@ components:
             properties:
               status: { $ref: "#/components/schemas/HealthStatus" }
   schemas:
+    WorkspaceSyncStatus:
+      type: object
+      required: [mode, pageCount, scenarioCount, stale]
+      properties:
+        mode: { type: string, enum: [human_governed, git_managed] }
+        repository: { type: string }
+        lastCheckedAt: { type: string, format: date-time }
+        lastImportedAt: { type: string, format: date-time }
+        lastError: { type: string }
+        lastErrorAt: { type: string, format: date-time }
+        commit: { type: string }
+        runId: { type: string }
+        runAttempt: { type: integer }
+        contentHash: { type: string }
+        pageCount: { type: integer }
+        scenarioCount: { type: integer }
+        stale: { type: boolean }
+    RepositorySource:
+      type: object
+      required: [externalId, repository, commit, contentHash, path, content, runId, runAttempt, verifiedCommit, result, importedAt]
+      properties:
+        externalId: { type: string }
+        repository: { type: string }
+        commit: { type: string }
+        contentHash: { type: string }
+        path: { type: string }
+        content: { type: string }
+        runId: { type: string }
+        runAttempt: { type: integer }
+        verifiedCommit: { type: string }
+        result: { type: string, enum: [passed] }
+        importedAt: { type: string, format: date-time }
     HealthStatus:
       type: string
       enum: [ok]
@@ -442,7 +485,7 @@ components:
       enum: [noun, verb]
     RevisionStatus:
       type: string
-      enum: [draft, approved, superseded]
+      enum: [draft, approved, superseded, repository_baseline]
     DevelopmentStatus:
       type: string
       enum: [queued, running, developed, blocked]
@@ -479,11 +522,14 @@ components:
       type: object
       required: [id, kind, slug, title, approved, hasDraft, unresolvedObjections, createdAt, updatedAt]
       properties:
+        repositoryRevisionId: { type: string, format: uuid }
+        repositorySource: { $ref: "#/components/schemas/RepositorySource" }
+        archived: { type: boolean }
         id: { type: string, format: uuid }
         kind: { $ref: "#/components/schemas/PageKind" }
         conceptKind: { $ref: "#/components/schemas/ConceptKind" }
         parentId: { type: string, format: uuid }
-        slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        slug: { type: string, description: Human slug or stable external repository ID. }
         title: { type: string }
         approvedRevisionId: { type: string, format: uuid }
         latestDraftRevisionId: { type: string, format: uuid }
@@ -537,6 +583,7 @@ components:
         - type: object
           required: [id, pageId, number, status, createdBy, createdAt]
           properties:
+            repositorySource: { $ref: "#/components/schemas/RepositorySource" }
             id: { type: string, format: uuid }
             pageId: { type: string, format: uuid }
             number: { type: integer, minimum: 1 }
@@ -605,6 +652,7 @@ components:
       required: [page, revisions, comments, objections, children, reviewStates]
       properties:
         page: { $ref: "#/components/schemas/Page" }
+        repositoryRevision: { $ref: "#/components/schemas/Revision" }
         approvedRevision: { $ref: "#/components/schemas/Revision" }
         draftRevision: { $ref: "#/components/schemas/Revision" }
         revisions: { type: array, items: { $ref: "#/components/schemas/RevisionSummary" } }

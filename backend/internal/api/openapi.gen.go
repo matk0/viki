@@ -71,6 +71,11 @@ const (
 	Scenario PageKind = "scenario"
 )
 
+// Defines values for RepositorySourceResult.
+const (
+	Passed RepositorySourceResult = "passed"
+)
+
 // Defines values for ReviewBlockerType.
 const (
 	ReviewBlockerTypeObjection     ReviewBlockerType = "objection"
@@ -86,9 +91,10 @@ const (
 
 // Defines values for RevisionStatus.
 const (
-	RevisionStatusApproved   RevisionStatus = "approved"
-	RevisionStatusDraft      RevisionStatus = "draft"
-	RevisionStatusSuperseded RevisionStatus = "superseded"
+	RevisionStatusApproved           RevisionStatus = "approved"
+	RevisionStatusDraft              RevisionStatus = "draft"
+	RevisionStatusRepositoryBaseline RevisionStatus = "repository_baseline"
+	RevisionStatusSuperseded         RevisionStatus = "superseded"
 )
 
 // Defines values for StepRole.
@@ -96,6 +102,12 @@ const (
 	Action  StepRole = "action"
 	Context StepRole = "context"
 	Outcome StepRole = "outcome"
+)
+
+// Defines values for WorkspaceSyncStatusMode.
+const (
+	GitManaged    WorkspaceSyncStatusMode = "git_managed"
+	HumanGoverned WorkspaceSyncStatusMode = "human_governed"
 )
 
 // APIError defines model for APIError.
@@ -317,6 +329,7 @@ type Page struct {
 	Approved              bool                `json:"approved"`
 	ApprovedRevisionId    *openapi_types.UUID `json:"approvedRevisionId,omitempty"`
 	ApprovedRevisionTitle *string             `json:"approvedRevisionTitle,omitempty"`
+	Archived              *bool               `json:"archived,omitempty"`
 	ConceptKind           *ConceptKind        `json:"conceptKind,omitempty"`
 	CreatedAt             time.Time           `json:"createdAt"`
 	DraftRevisionTitle    *string             `json:"draftRevisionTitle,omitempty"`
@@ -325,10 +338,14 @@ type Page struct {
 	Kind                  PageKind            `json:"kind"`
 	LatestDraftRevisionId *openapi_types.UUID `json:"latestDraftRevisionId,omitempty"`
 	ParentId              *openapi_types.UUID `json:"parentId,omitempty"`
-	Slug                  string              `json:"slug"`
-	Title                 string              `json:"title"`
-	UnresolvedObjections  int                 `json:"unresolvedObjections"`
-	UpdatedAt             time.Time           `json:"updatedAt"`
+	RepositoryRevisionId  *openapi_types.UUID `json:"repositoryRevisionId,omitempty"`
+	RepositorySource      *RepositorySource   `json:"repositorySource,omitempty"`
+
+	// Slug Human slug or stable external repository ID.
+	Slug                 string    `json:"slug"`
+	Title                string    `json:"title"`
+	UnresolvedObjections int       `json:"unresolvedObjections"`
+	UpdatedAt            time.Time `json:"updatedAt"`
 }
 
 // PageDetail defines model for PageDetail.
@@ -341,6 +358,7 @@ type PageDetail struct {
 	DraftRevision       *Revision                   `json:"draftRevision,omitempty"`
 	Objections          []Objection                 `json:"objections"`
 	Page                Page                        `json:"page"`
+	RepositoryRevision  *Revision                   `json:"repositoryRevision,omitempty"`
 	ReviewStates        []RevisionReviewState       `json:"reviewStates"`
 	Revisions           []RevisionSummary           `json:"revisions"`
 }
@@ -355,6 +373,24 @@ type PageReference struct {
 	TargetPageId    *openapi_types.UUID `json:"targetPageId,omitempty"`
 	TargetTitle     *string             `json:"targetTitle,omitempty"`
 }
+
+// RepositorySource defines model for RepositorySource.
+type RepositorySource struct {
+	Commit         string                 `json:"commit"`
+	Content        string                 `json:"content"`
+	ContentHash    string                 `json:"contentHash"`
+	ExternalId     string                 `json:"externalId"`
+	ImportedAt     time.Time              `json:"importedAt"`
+	Path           string                 `json:"path"`
+	Repository     string                 `json:"repository"`
+	Result         RepositorySourceResult `json:"result"`
+	RunAttempt     int                    `json:"runAttempt"`
+	RunId          string                 `json:"runId"`
+	VerifiedCommit string                 `json:"verifiedCommit"`
+}
+
+// RepositorySourceResult defines model for RepositorySource.Result.
+type RepositorySourceResult string
 
 // ReviewBlocker defines model for ReviewBlocker.
 type ReviewBlocker struct {
@@ -376,18 +412,19 @@ type ReviewReadiness string
 
 // Revision defines model for Revision.
 type Revision struct {
-	ApprovedAt     *time.Time          `json:"approvedAt,omitempty"`
-	BaseRevisionId *openapi_types.UUID `json:"baseRevisionId,omitempty"`
-	BodyMd         string              `json:"bodyMd"`
-	CreatedAt      time.Time           `json:"createdAt"`
-	CreatedBy      User                `json:"createdBy"`
-	Id             openapi_types.UUID  `json:"id"`
-	Number         int                 `json:"number"`
-	PageId         openapi_types.UUID  `json:"pageId"`
-	References     []PageReference     `json:"references"`
-	Status         RevisionStatus      `json:"status"`
-	Steps          []BDDStep           `json:"steps"`
-	Title          string              `json:"title"`
+	ApprovedAt       *time.Time          `json:"approvedAt,omitempty"`
+	BaseRevisionId   *openapi_types.UUID `json:"baseRevisionId,omitempty"`
+	BodyMd           string              `json:"bodyMd"`
+	CreatedAt        time.Time           `json:"createdAt"`
+	CreatedBy        User                `json:"createdBy"`
+	Id               openapi_types.UUID  `json:"id"`
+	Number           int                 `json:"number"`
+	PageId           openapi_types.UUID  `json:"pageId"`
+	References       []PageReference     `json:"references"`
+	RepositorySource *RepositorySource   `json:"repositorySource,omitempty"`
+	Status           RevisionStatus      `json:"status"`
+	Steps            []BDDStep           `json:"steps"`
+	Title            string              `json:"title"`
 }
 
 // RevisionContent defines model for RevisionContent.
@@ -472,6 +509,26 @@ type User struct {
 	Email       openapi_types.Email `json:"email"`
 	Id          openapi_types.UUID  `json:"id"`
 }
+
+// WorkspaceSyncStatus defines model for WorkspaceSyncStatus.
+type WorkspaceSyncStatus struct {
+	Commit         *string                 `json:"commit,omitempty"`
+	ContentHash    *string                 `json:"contentHash,omitempty"`
+	LastCheckedAt  *time.Time              `json:"lastCheckedAt,omitempty"`
+	LastError      *string                 `json:"lastError,omitempty"`
+	LastErrorAt    *time.Time              `json:"lastErrorAt,omitempty"`
+	LastImportedAt *time.Time              `json:"lastImportedAt,omitempty"`
+	Mode           WorkspaceSyncStatusMode `json:"mode"`
+	PageCount      int                     `json:"pageCount"`
+	Repository     *string                 `json:"repository,omitempty"`
+	RunAttempt     *int                    `json:"runAttempt,omitempty"`
+	RunId          *string                 `json:"runId,omitempty"`
+	ScenarioCount  int                     `json:"scenarioCount"`
+	Stale          bool                    `json:"stale"`
+}
+
+// WorkspaceSyncStatusMode defines model for WorkspaceSyncStatus.Mode.
+type WorkspaceSyncStatusMode string
 
 // ClarificationRequestId defines model for ClarificationRequestId.
 type ClarificationRequestId = string

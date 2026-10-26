@@ -9,3 +9,5 @@ work
 outputs
 __pycache__
 *.pyc
+
+.sync.env
