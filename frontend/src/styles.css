@@ -604,6 +604,7 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 
 .repository-sync { display: flex; flex-direction: column; gap: .4rem; padding: 1rem 2rem; border-bottom: 1px solid #ddd; background: #fafafa; overflow-wrap: anywhere; }
 .repository-sync.error { border-left: 3px solid #666; }
+@media (max-width: 930px) { .repository-sync { padding-top: 3rem; } }
 .repository-sync small, .repository-provenance small { color: #666; }
 .repository-card, .repository-provenance { display: flex; flex-direction: column; gap: .6rem; padding: 1.2rem; margin: 1rem 0; overflow-wrap: anywhere; }
 .repository-provenance { border: 1px solid #ddd; border-radius: .6rem; }
