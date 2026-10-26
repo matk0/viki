@@ -26,7 +26,7 @@ func TestOpenAPIContractContainsCoreSurface(t *testing.T) {
 		"enum: [concept, feature, scenario]",
 		"ConceptKind:",
 		"InitialScenarioRequest:",
-		"enum: [draft, approved, superseded]",
+		"enum: [draft, approved, superseded, repository_baseline]",
 		"approvedRevisionId:",
 		"enum: [given, when, then, and, but]",
 	}
@@ -67,7 +67,7 @@ func TestGeneratedTypesContainContractEnums(t *testing.T) {
 		content  string
 		required []string
 	}{
-		{"Go", string(goTypes), []string{"type PageKind string", `PageKind = "concept"`, `PageKind = "feature"`, `PageKind = "scenario"`, "type ConceptKind string", "type InitialScenarioRequest struct", `Approved   RevisionStatus = "approved"`, "ApprovedRevisionId", "type BDDKeyword string", `BDDKeyword = "given"`, `BDDKeyword = "but"`, "type AssistantConversation struct", "type AssistantStatus struct"}},
+		{"Go", string(goTypes), []string{"type PageKind string", `PageKind = "concept"`, `PageKind = "feature"`, `PageKind = "scenario"`, "type ConceptKind string", "type InitialScenarioRequest struct", `RevisionStatus = "approved"`, "ApprovedRevisionId", "type BDDKeyword string", `BDDKeyword = "given"`, `BDDKeyword = "but"`, "type AssistantConversation struct", "type AssistantStatus struct"}},
 		{"TypeScript", string(typescriptTypes), []string{`PageKind: "concept" | "feature" | "scenario"`, `RevisionStatus: "draft" | "approved" | "superseded"`, `approvedRevisionId?:`, `ConceptKind: "noun" | "verb"`, `InitialScenarioRequest:`, `BDDKeyword: "given" | "when" | "then" | "and" | "but"`, `AssistantMode: "qa" | "edit"`, `AssistantConversation:`, `AssistantStatus:`}},
 	}
 	for _, check := range checks {

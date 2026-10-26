@@ -100,6 +100,10 @@ To remove all local application data, including the PostgreSQL and Hermes volume
 docker compose down -v
 ```
 
+## Repository-managed read-only mirror
+
+An explicitly configured workspace can display canonical English business specifications and verified main-CI results from the Vozokany repository. Imported baselines are separate from human approvals and development. See [repository synchronization](docs/repository-sync.md) for authority, validation, scoped credentials, worker deployment and rollback. The default local workspace keeps its existing human-governed behavior.
+
 ## Local development
 
 The Docker Compose path above is the supported full-stack setup. For focused source development, install the host dependencies first:

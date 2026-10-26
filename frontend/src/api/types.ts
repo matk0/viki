@@ -1,5 +1,8 @@
 import type { components } from './generated'
 
+export type WorkspaceSyncStatus = components['schemas']['WorkspaceSyncStatus']
+export type RepositorySource = components['schemas']['RepositorySource']
+
 type Schemas = components['schemas']
 
 export type PageKind = Schemas['PageKind']
@@ -41,6 +44,9 @@ export interface User {
 }
 
 export interface Page {
+ repositoryRevisionId?: string
+ repositorySource?: RepositorySource
+ archived?: boolean
   id: string
   kind: PageKind
   conceptKind?: ConceptKind
@@ -83,6 +89,7 @@ export interface RevisionContent {
 }
 
 export interface Revision extends RevisionContent {
+ repositorySource?: RepositorySource
   id: string
   pageId: string
   number: number
@@ -157,6 +164,7 @@ export interface RevisionReviewState {
 }
 
 export interface PageDetail {
+ repositoryRevision?: Revision
   page: Page
   approvedRevision?: Revision
   draftRevision?: Revision

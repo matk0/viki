@@ -7,12 +7,17 @@ import { PageIcon } from '../components/PageIcon'
 import { VikiSelect } from '../components/VikiSelect'
 import { EmptyState, kindLabel, StatusBadge } from '../components/ui'
 import { useI18n } from '../i18n'
+import { RepositoryLibrary } from '../components/RepositoryWorkspace'
 
 type StatusFilterValue = 'all' | 'approved' | 'draft'
 
 export function LibraryPage({ kind }: { kind: 'concept' | 'feature' }) {
+ const { syncStatus } = useWorkspace()
+ return syncStatus?.mode === 'git_managed' ? <RepositoryLibrary kind={kind} /> : <HumanLibraryPage kind={kind} />
+}
+function HumanLibraryPage({ kind }: { kind: 'concept' | 'feature' }) {
   const { t } = useI18n()
-  const { pages, loadingPages, openNewPage } = useWorkspace()
+  const { pages, loadingPages, openNewPage, readOnly } = useWorkspace()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<StatusFilterValue>('all')
   const children = useMemo(() => new Map(pages.filter((page) => page.kind === 'scenario').map((page) => [page.id, page])), [pages])
@@ -44,7 +49,7 @@ export function LibraryPage({ kind }: { kind: 'concept' | 'feature' }) {
   return <div className="page-container library-page">
     <header className="page-heading">
       <div><h1>{kind === 'concept' ? t('kind.concepts') : t('kind.features')}</h1><p>{kind === 'concept' ? t('library.conceptsDescription') : t('library.featuresDescription')}</p></div>
-      <button className="primary-button" onClick={() => openNewPage(kind)}><Plus size={16} />{kind === 'concept' ? t('library.addConcept') : t('library.addFeature')}</button>
+      <button className="primary-button" disabled={readOnly} onClick={() => openNewPage(kind)}><Plus size={16} />{kind === 'concept' ? t('library.addConcept') : t('library.addFeature')}</button>
     </header>
     <div className="library-toolbar">
       <label className="search-field"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={kind === 'concept' ? t('library.searchConcepts') : t('library.searchFeatures')} /></label>

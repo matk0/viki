@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     onConnection: (state: AssistantConnectionState) => void,
   ) => () => void>(),
   reloadPages: vi.fn(),
+  readOnly: false,
 }))
 
 vi.mock('../../api/client', () => ({
@@ -32,7 +33,7 @@ vi.mock('../../api/client', () => ({
 }))
 
 vi.mock('../../workspace', () => ({
-  useWorkspace: () => ({ reloadPages: mocks.reloadPages }),
+  useWorkspace: () => ({ reloadPages: mocks.reloadPages, readOnly: mocks.readOnly }),
 }))
 
 const status: AssistantStatus = {
@@ -136,6 +137,7 @@ describe('AssistantPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.readOnly = false
     window.history.replaceState({}, '', '/')
     mocks.api.assistantStatus.mockResolvedValue(status)
     mocks.api.assistantConversations.mockResolvedValue({ conversations: [conversation] })
@@ -851,4 +853,15 @@ describe('AssistantPanel', () => {
     const Outside = () => { useAssistant(); return null }
     expect(() => render(<Outside />)).toThrow('useAssistant must be used inside AssistantProvider')
   })
+})
+
+it('keeps Q&A usable and hides the independent Edit mode in Git-managed workspaces', async () => {
+ mocks.readOnly=true
+ mocks.api.assistantStatus.mockResolvedValue({...status, edit:{...status.edit, ready:false}})
+ mocks.api.assistantConversations.mockResolvedValue({conversations:[conversation]})
+ mocks.api.assistantConversation.mockResolvedValue({...conversation,lastMode:'qa'})
+ render(<Router><AssistantProvider><AssistantPanel /></AssistantProvider></Router>)
+ await screen.findByRole('button',{name:'Otázky'})
+ expect(screen.queryByRole('button',{name:'Úpravy'})).not.toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'Otázky'})).toBeEnabled()
 })

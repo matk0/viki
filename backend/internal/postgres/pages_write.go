@@ -91,6 +91,11 @@ func validateBDDSteps(steps []model.Step) error {
 }
 
 func (r *Repository) CreatePage(ctx context.Context, organizationID, userID string, input model.CreatePageInput) (model.PageDetail, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return model.PageDetail{}, err
+	} else if managed {
+		return model.PageDetail{}, store.ErrReadOnly
+	}
 	if !slugPattern.MatchString(input.Slug) {
 		return model.PageDetail{}, fmt.Errorf("slug must contain lowercase ASCII words separated by hyphens")
 	}
@@ -173,6 +178,11 @@ func (r *Repository) CreatePage(ctx context.Context, organizationID, userID stri
 }
 
 func (r *Repository) SaveRevision(ctx context.Context, organizationID, userID, pageID string, input model.SaveRevisionInput) (model.Revision, error) {
+	if managed, err := r.repositoryManaged(ctx, organizationID); err != nil {
+		return model.Revision{}, err
+	} else if managed {
+		return model.Revision{}, store.ErrReadOnly
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return model.Revision{}, err

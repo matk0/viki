@@ -10,12 +10,14 @@ WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/viki ./cmd/viki
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/viki ./cmd/viki && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/viki-sync ./cmd/viki-sync
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates wget && addgroup -S viki && adduser -S -G viki viki
 WORKDIR /app
 COPY --from=backend /out/viki /app/viki
+COPY --from=backend /out/viki-sync /app/viki-sync
 COPY --from=frontend /src/frontend/dist /app/public
 USER viki
 EXPOSE 8080

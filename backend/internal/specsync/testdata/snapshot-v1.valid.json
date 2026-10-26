@@ -1,0 +1,113 @@
+{
+  "format": "vozokany-business-specification",
+  "schemaVersion": 1,
+  "source": {
+    "repository": "https://github.com/matk0/vozokany",
+    "commit": "0000000000000000000000000000000000000000",
+    "dirty": true,
+    "contentHash": "sha256:29412071d69813de78aa3e8d32adf81d59c557519c7c09030624109ba2a9261a"
+  },
+  "publication": {
+    "kind": "local",
+    "event": "local",
+    "ref": "refs/heads/example",
+    "workflow": ".github/workflows/verify.yml",
+    "runId": "synthetic-contract-fixture",
+    "runAttempt": 1,
+    "eligibleForImport": false
+  },
+  "documents": [
+    {
+      "id": "VOZ-CON-CONSENT",
+      "kind": "concept",
+      "path": "specs/business/concepts/consent.md",
+      "title": "Customer consent",
+      "description": "",
+      "content": "<!-- business-id: VOZ-CON-CONSENT -->\n# Customer consent\n\nA manually added customer has existing paper consent. Public signups require email confirmation.\n",
+      "contentHash": "sha256:cfbe949b75a8ad9939cdccac67465da1d93d15718667ffa6c295d8d1b674ba2d",
+      "conceptIds": []
+    },
+    {
+      "id": "VOZ-FEAT-CONSENT",
+      "kind": "feature",
+      "path": "specs/business/consent.feature",
+      "title": "Customer consent",
+      "description": "  Paper consent is recorded when the farmer adds a customer.",
+      "content": "@id:VOZ-FEAT-CONSENT @concept:VOZ-CON-CONSENT\nFeature: Customer consent\n  Paper consent is recorded when the farmer adds a customer.\n\n  @id:VOZ-SC-CONSENT-001\n  Scenario: Add a customer with existing paper consent\n    Given a farmer is signed in\n    When the farmer adds a customer with existing paper consent\n    Then the customer is subscribed with recorded paper consent\n    And no confirmation is requested\n",
+      "contentHash": "sha256:17a4a2e55faea70767d678e0d244723afc8ff5d078eca18110e8cb65fbdc4c63",
+      "conceptIds": [
+        "VOZ-CON-CONSENT"
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "VOZ-SC-CONSENT-001",
+      "featureId": "VOZ-FEAT-CONSENT",
+      "name": "Add a customer with existing paper consent",
+      "description": "",
+      "line": 6,
+      "steps": [
+        {
+          "keyword": "Given",
+          "text": "a farmer is signed in",
+          "line": 7
+        },
+        {
+          "keyword": "When",
+          "text": "the farmer adds a customer with existing paper consent",
+          "line": 8
+        },
+        {
+          "keyword": "Then",
+          "text": "the customer is subscribed with recorded paper consent",
+          "line": 9
+        },
+        {
+          "keyword": "And",
+          "text": "no confirmation is requested",
+          "line": 10
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "schemaVersion": 1,
+    "sourceCommit": "0000000000000000000000000000000000000000",
+    "sourceContentHash": "sha256:29412071d69813de78aa3e8d32adf81d59c557519c7c09030624109ba2a9261a",
+    "backend": "rust",
+    "runner": {
+      "name": "cucumber-js",
+      "version": "13.3.0"
+    },
+    "command": "npm run test:acceptance",
+    "startedAt": "2026-08-21T12:00:00.000Z",
+    "finishedAt": "2026-08-21T12:00:01.000Z",
+    "messagesHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "cases": [
+      {
+        "scenarioId": "VOZ-SC-CONSENT-001",
+        "status": "passed",
+        "durationNanoseconds": "1000000000",
+        "steps": [
+          {
+            "text": "a farmer is signed in",
+            "status": "passed"
+          },
+          {
+            "text": "the farmer adds a customer with existing paper consent",
+            "status": "passed"
+          },
+          {
+            "text": "the customer is subscribed with recorded paper consent",
+            "status": "passed"
+          },
+          {
+            "text": "no confirmation is requested",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  }
+}

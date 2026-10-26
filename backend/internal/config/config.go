@@ -9,6 +9,8 @@ import (
 )
 
 type Config struct {
+	GitRepository          string
+	SnapshotImportToken    string
 	Address                string
 	InternalAddress        string
 	DatabaseURL            string
@@ -31,6 +33,8 @@ type Config struct {
 
 func Load() (Config, error) {
 	cfg := Config{
+		GitRepository:          os.Getenv("VIKI_GIT_REPOSITORY"),
+		SnapshotImportToken:    os.Getenv("VIKI_SNAPSHOT_IMPORT_TOKEN"),
 		Address:                env("VIKI_ADDRESS", ":8080"),
 		InternalAddress:        env("VIKI_INTERNAL_ADDRESS", "127.0.0.1:8090"),
 		DatabaseURL:            env("DATABASE_URL", "postgres://viki:viki@localhost:5432/viki?sslmode=disable"),
@@ -49,6 +53,9 @@ func Load() (Config, error) {
 		FrontendDir:            env("FRONTEND_DIR", "../frontend/dist"),
 		DevelopmentTargetURL:   env("DEVELOPMENT_TARGET_URL", "http://127.0.0.1:8091"),
 		DevelopmentTargetToken: os.Getenv("DEVELOPMENT_TARGET_TOKEN"),
+	}
+	if cfg.GitRepository != "" && (len(cfg.SnapshotImportToken) < 32 || cfg.DeveloperEnabled) {
+		return Config{}, fmt.Errorf("Git-managed workspace requires a separate import token and disabled developer worker")
 	}
 	if cfg.InitialPassword == "" {
 		return Config{}, fmt.Errorf("INITIAL_USER_PASSWORD is required")

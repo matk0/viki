@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/matk0/vozokany/specs/business/publication/snapshot-v1.schema.json",
+  "title": "Vozokany business specification snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "schemaVersion",
+    "source",
+    "publication",
+    "documents",
+    "scenarios",
+    "verification"
+  ],
+  "properties": {
+    "format": {
+      "const": "vozokany-business-specification"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "commit",
+        "dirty",
+        "contentHash"
+      ],
+      "properties": {
+        "repository": {
+          "const": "https://github.com/matk0/vozokany"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "event",
+        "ref",
+        "workflow",
+        "runId",
+        "runAttempt",
+        "eligibleForImport"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "local",
+            "pull-request",
+            "main"
+          ]
+        },
+        "event": {
+          "type": "string",
+          "enum": [
+            "local",
+            "pull_request",
+            "push"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "workflow": {
+          "const": ".github/workflows/verify.yml"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runAttempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "eligibleForImport": {
+          "type": "boolean"
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "path",
+          "title",
+          "description",
+          "content",
+          "contentHash",
+          "conceptIds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^VOZ-(CON|FEAT|SC)-[A-Z0-9-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "concept",
+              "feature"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^specs/business/[A-Za-z0-9_./-]+\\.(md|feature)$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contentHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "conceptIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^VOZ-(CON|FEAT|SC)-[A-Z0-9-]+$"
+            }
+          }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "featureId",
+          "name",
+          "description",
+          "line",
+          "steps"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^VOZ-(CON|FEAT|SC)-[A-Z0-9-]+$"
+          },
+          "featureId": {
+            "type": "string",
+            "pattern": "^VOZ-(CON|FEAT|SC)-[A-Z0-9-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "keyword",
+                "text",
+                "line"
+              ],
+              "properties": {
+                "keyword": {
+                  "type": "string",
+                  "enum": [
+                    "Given",
+                    "When",
+                    "Then",
+                    "And",
+                    "But"
+                  ]
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "line": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceCommit",
+        "sourceContentHash",
+        "backend",
+        "runner",
+        "command",
+        "startedAt",
+        "finishedAt",
+        "messagesHash",
+        "cases"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "sourceCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sourceContentHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "backend": {
+          "const": "rust"
+        },
+        "runner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "const": "cucumber-js"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "command": {
+          "const": "npm run test:acceptance"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "messagesHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scenarioId",
+              "status",
+              "durationNanoseconds",
+              "steps"
+            ],
+            "properties": {
+              "scenarioId": {
+                "type": "string",
+                "pattern": "^VOZ-(CON|FEAT|SC)-[A-Z0-9-]+$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed",
+                  "skipped",
+                  "pending",
+                  "undefined",
+                  "ambiguous",
+                  "unknown"
+                ]
+              },
+              "durationNanoseconds": {
+                "type": "string",
+                "pattern": "^[0-9]+$"
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "text",
+                    "status"
+                  ],
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "passed",
+                        "failed",
+                        "skipped",
+                        "pending",
+                        "undefined",
+                        "ambiguous",
+                        "unknown"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

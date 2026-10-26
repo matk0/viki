@@ -246,3 +246,11 @@ describe('assistant API client', () => {
     expect(onEvent).not.toHaveBeenCalled()
   })
 })
+
+it('loads the authenticated authority and sync status contract', async () => {
+ const fetchMock=vi.fn().mockResolvedValue(new Response(JSON.stringify({mode:'git_managed',pageCount:3,scenarioCount:1,stale:false}),{status:200}))
+ vi.stubGlobal('fetch',fetchMock)
+ await expect(api.workspaceSyncStatus()).resolves.toMatchObject({mode:'git_managed'})
+ expect(fetchMock).toHaveBeenCalledWith('/api/v1/workspace/sync',expect.objectContaining({credentials:'same-origin'}))
+ vi.unstubAllGlobals()
+})

@@ -147,6 +147,8 @@ func TestLoadRequiresExplicitDeveloperCapabilityAndTargetCredential(t *testing.T
 }
 
 func clearConfigEnvironment(t *testing.T) {
+	t.Setenv("VIKI_GIT_REPOSITORY", "")
+	t.Setenv("VIKI_SNAPSHOT_IMPORT_TOKEN", "")
 	t.Helper()
 	for _, name := range []string{
 		"VIKI_ADDRESS",
@@ -168,5 +170,23 @@ func clearConfigEnvironment(t *testing.T) {
 		"DEVELOPMENT_TARGET_TOKEN",
 	} {
 		t.Setenv(name, "")
+	}
+}
+
+func TestGitWorkspaceRequiresSeparateImportCredentialAndDisabledDeveloper(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("INITIAL_USER_PASSWORD", "test-password")
+	t.Setenv("VIKI_GIT_REPOSITORY", "https://github.com/matk0/vozokany")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("missing private import credential accepted")
+	}
+	t.Setenv("VIKI_SNAPSHOT_IMPORT_TOKEN", "01234567890123456789012345678901")
+	cfg, err := config.Load()
+	if err != nil || cfg.GitRepository == "" || cfg.SnapshotImportToken == "" {
+		t.Fatal(cfg, err)
+	}
+	t.Setenv("VIKI_DEVELOPER_ENABLED", "true")
+	if _, err = config.Load(); err == nil {
+		t.Fatal("Git-managed developer worker accepted")
 	}
 }

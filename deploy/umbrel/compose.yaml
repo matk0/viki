@@ -1,0 +1,149 @@
+name: viki-vozokany
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  database:
+    image: ${POSTGRES_IMAGE:?Set pinned PostgreSQL image}
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    shm_size: 128m
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    environment:
+      POSTGRES_DB: viki_vozokany
+      POSTGRES_USER: viki_vozokany
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a unique database password}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command: [postgres, -c, shared_buffers=64MB, -c, max_connections=30]
+    volumes:
+      - database:/var/lib/postgresql
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U viki_vozokany -d viki_vozokany"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 60s
+
+  viki:
+    image: ${VIKI_IMAGE:?Set the reviewed immutable Viki image}
+    restart: unless-stopped
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 1.0
+    pids_limit: 128
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://viki_vozokany:${POSTGRES_PASSWORD:?Set a unique database password}@database:5432/viki_vozokany?sslmode=disable
+      INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:?Set a unique login password}
+      FRONTEND_DIR: /app/public
+      COOKIE_SECURE: "true"
+      VIKI_INTERNAL_ADDRESS: 0.0.0.0:8090
+      VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:?Set unique token}
+      HERMES_QA_WS_URL: ws://hermes:9219/api/ws
+      HERMES_EDIT_WS_URL: ws://hermes:9220/api/ws
+      HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:?Set unique token}
+      HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:?Set unique token}
+      HERMES_QA_CONFIGURED: "true"
+      HERMES_EDIT_CONFIGURED: "true"
+      VIKI_GIT_REPOSITORY: https://github.com/matk0/vozokany
+      VIKI_SNAPSHOT_IMPORT_TOKEN: ${VIKI_SNAPSHOT_IMPORT_TOKEN:?Set a separate random import credential}
+      VIKI_DEVELOPER_ENABLED: "false"
+      VIKI_DEVELOPER_TOOL_TOKEN: ""
+      DEVELOPMENT_TARGET_URL: http://127.0.0.1:1
+      DEVELOPMENT_TARGET_TOKEN: ""
+    ports:
+      - "127.0.0.1:18080:8080"
+    networks: [database, assistant, ingress]
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:8080/readyz]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 30s
+
+  hermes:
+    image: ${HERMES_IMAGE:?Set the matching reviewed Hermes image}
+    restart: unless-stopped
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    cpus: 1.0
+    pids_limit: 256
+    logging: *logging
+    depends_on:
+      viki:
+        condition: service_started
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Existing Viki provider key required}
+      OPENAI_BASE_URL: https://api.openai.com/v1
+      HERMES_MODEL: gpt-5.6-terra
+      HERMES_QA_TOKEN: ${HERMES_QA_TOKEN:?Set unique token}
+      HERMES_EDIT_TOKEN: ${HERMES_EDIT_TOKEN:?Set unique token}
+      VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:?Set unique token}
+      VIKI_INTERNAL_URL: http://viki:8090
+      VIKI_DEVELOPER_ENABLED: "false"
+      VIKI_DEVELOPER_TOOL_TOKEN: ""
+    volumes:
+      - hermes:/opt/data
+    networks: [assistant, egress]
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS http://127.0.0.1:9219/api/status >/dev/null && curl -fsS http://127.0.0.1:9220/api/status >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    stop_grace_period: 60s
+
+  sync:
+    image: ${VIKI_IMAGE:?Set the reviewed immutable Viki image}
+    entrypoint: [/app/viki-sync]
+    restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.25
+    pids_limit: 64
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    depends_on:
+      viki:
+        condition: service_healthy
+    env_file: [.sync.env]
+    environment:
+      VIKI_SYNC_INTERNAL_URL: http://viki:8090
+      VIKI_SNAPSHOT_IMPORT_TOKEN: ${VIKI_SNAPSHOT_IMPORT_TOKEN:?Set a separate random import credential}
+    networks: [assistant, sync-egress]
+    stop_grace_period: 100s
+
+networks:
+  database:
+    internal: true
+  assistant:
+    internal: true
+  ingress: {}
+  egress: {}
+  sync-egress: {}
+
+volumes:
+  database:
+    name: viki-vozokany-postgres
+  hermes:
+    name: viki-vozokany-hermes

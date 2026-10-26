@@ -12,6 +12,7 @@ import (
 )
 
 type Options struct {
+	SnapshotImportToken    string
 	CookieSecure           bool
 	SessionTTL             time.Duration
 	FrontendDir            string
@@ -72,6 +73,7 @@ func NewApplication(repository store.Repository, gateway hermes.Gateway, options
 	mux.HandleFunc("POST /api/v1/auth/login", server.login)
 	mux.HandleFunc("GET /api/v1/auth/me", server.requireAuth(server.me))
 	mux.HandleFunc("POST /api/v1/auth/logout", server.requireAuth(server.logout))
+	mux.HandleFunc("GET /api/v1/workspace/sync", server.requireAuth(server.workspaceSyncStatus))
 	mux.HandleFunc("GET /api/v1/pages", server.requireAuth(server.listPages))
 	mux.HandleFunc("GET /api/v1/step-definitions", server.requireAuth(server.listStepDefinitions))
 	mux.HandleFunc("POST /api/v1/pages", server.requireAuth(server.createPage))

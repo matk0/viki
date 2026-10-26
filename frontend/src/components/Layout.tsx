@@ -12,6 +12,7 @@ import { useAuth } from '../auth';
 import { useAssistant } from '../assistant';
 import { Link, useRouter } from '../router';
 import { useWorkspace } from '../workspace';
+import { RepositorySyncBanner } from './RepositoryWorkspace';
 import { AssistantPanel } from './assistant/AssistantPanel';
 import { NewPageDialog } from './NewPageDialog';
 import { LanguageSwitcher, useI18n } from '../i18n';
@@ -138,7 +139,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className="main-content">{children}</main>
+      <main className="main-content"><RepositorySyncBanner />{children}</main>
       <button
         className={`assistant-fab ${assistantVisible ? 'active' : ''}`}
         onClick={() => {

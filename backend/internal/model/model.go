@@ -20,9 +20,10 @@ const (
 type RevisionStatus string
 
 const (
-	RevisionDraft      RevisionStatus = "draft"
-	RevisionApproved   RevisionStatus = "approved"
-	RevisionSuperseded RevisionStatus = "superseded"
+	RevisionDraft              RevisionStatus = "draft"
+	RevisionApproved           RevisionStatus = "approved"
+	RevisionSuperseded         RevisionStatus = "superseded"
+	RevisionRepositoryBaseline RevisionStatus = "repository_baseline"
 )
 
 type DevelopmentStatus string
@@ -66,21 +67,24 @@ type Session struct {
 }
 
 type Page struct {
-	ID                    string       `json:"id"`
-	Kind                  PageKind     `json:"kind"`
-	ConceptKind           *ConceptKind `json:"conceptKind,omitempty"`
-	ParentID              *string      `json:"parentId,omitempty"`
-	Slug                  string       `json:"slug"`
-	Title                 string       `json:"title"`
-	ApprovedRevisionID    *string      `json:"approvedRevisionId,omitempty"`
-	LatestDraftRevisionID *string      `json:"latestDraftRevisionId,omitempty"`
-	ApprovedRevisionTitle *string      `json:"approvedRevisionTitle,omitempty"`
-	DraftRevisionTitle    *string      `json:"draftRevisionTitle,omitempty"`
-	Approved              bool         `json:"approved"`
-	HasDraft              bool         `json:"hasDraft"`
-	UnresolvedObjections  int          `json:"unresolvedObjections"`
-	CreatedAt             time.Time    `json:"createdAt"`
-	UpdatedAt             time.Time    `json:"updatedAt"`
+	RepositoryRevisionID  *string           `json:"repositoryRevisionId,omitempty"`
+	RepositorySource      *RepositorySource `json:"repositorySource,omitempty"`
+	Archived              bool              `json:"archived,omitempty"`
+	ID                    string            `json:"id"`
+	Kind                  PageKind          `json:"kind"`
+	ConceptKind           *ConceptKind      `json:"conceptKind,omitempty"`
+	ParentID              *string           `json:"parentId,omitempty"`
+	Slug                  string            `json:"slug"`
+	Title                 string            `json:"title"`
+	ApprovedRevisionID    *string           `json:"approvedRevisionId,omitempty"`
+	LatestDraftRevisionID *string           `json:"latestDraftRevisionId,omitempty"`
+	ApprovedRevisionTitle *string           `json:"approvedRevisionTitle,omitempty"`
+	DraftRevisionTitle    *string           `json:"draftRevisionTitle,omitempty"`
+	Approved              bool              `json:"approved"`
+	HasDraft              bool              `json:"hasDraft"`
+	UnresolvedObjections  int               `json:"unresolvedObjections"`
+	CreatedAt             time.Time         `json:"createdAt"`
+	UpdatedAt             time.Time         `json:"updatedAt"`
 }
 
 type Step struct {
@@ -118,18 +122,19 @@ type PageReference struct {
 }
 
 type Revision struct {
-	ID             string          `json:"id"`
-	PageID         string          `json:"pageId"`
-	Number         int             `json:"number"`
-	Status         RevisionStatus  `json:"status"`
-	Title          string          `json:"title"`
-	BodyMD         string          `json:"bodyMd"`
-	Steps          []Step          `json:"steps"`
-	References     []PageReference `json:"references"`
-	BaseRevisionID *string         `json:"baseRevisionId,omitempty"`
-	CreatedBy      User            `json:"createdBy"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	ApprovedAt     *time.Time      `json:"approvedAt,omitempty"`
+	RepositorySource *RepositorySource `json:"repositorySource,omitempty"`
+	ID               string            `json:"id"`
+	PageID           string            `json:"pageId"`
+	Number           int               `json:"number"`
+	Status           RevisionStatus    `json:"status"`
+	Title            string            `json:"title"`
+	BodyMD           string            `json:"bodyMd"`
+	Steps            []Step            `json:"steps"`
+	References       []PageReference   `json:"references"`
+	BaseRevisionID   *string           `json:"baseRevisionId,omitempty"`
+	CreatedBy        User              `json:"createdBy"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	ApprovedAt       *time.Time        `json:"approvedAt,omitempty"`
 }
 
 type RevisionSummary struct {
@@ -198,6 +203,7 @@ type RevisionReviewState struct {
 }
 
 type PageDetail struct {
+	RepositoryRevision  *Revision                   `json:"repositoryRevision,omitempty"`
 	Page                Page                        `json:"page"`
 	ApprovedRevision    *Revision                   `json:"approvedRevision,omitempty"`
 	DraftRevision       *Revision                   `json:"draftRevision,omitempty"`

@@ -18,6 +18,7 @@ import type {
   StepDefinition,
   StepRole,
   User,
+  WorkspaceSyncStatus,
 } from './types'
 
 export class APIError extends Error {
@@ -99,6 +100,7 @@ function localizedErrorMessage(code: string, fallback: string): string {
 }
 
 export const api = {
+ workspaceSyncStatus: () => request<WorkspaceSyncStatus>('/api/v1/workspace/sync'),
   login: (email: string, password: string) => request<{ user: User; csrfToken: string }>('/api/v1/auth/login', {
     method: 'POST', body: JSON.stringify({ email, password }),
   }),

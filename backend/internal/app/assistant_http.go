@@ -19,13 +19,18 @@ import (
 
 var assistantKeepaliveInterval = 15 * time.Second
 
-func (s *Server) assistantStatus(w http.ResponseWriter, _ *http.Request, _ authState) {
+func (s *Server) assistantStatus(w http.ResponseWriter, request *http.Request, auth authState) {
 	status := s.assistant.status()
+	workspace, err := s.workspaceStatus(request.Context(), auth.Session.OrganizationID)
+	if err != nil {
+		s.handleError(w, err)
+		return
+	}
 	profile := func(mode model.AssistantMode) map[string]any {
 		value := status.Profiles[string(mode)]
 		result := map[string]any{
 			"mode": mode, "connected": value.Connected, "configured": value.Configured,
-			"ready": value.Connected && value.Configured,
+			"ready": value.Connected && value.Configured && !(workspace.Mode == "git_managed" && mode == model.AssistantEdit),
 		}
 		if !value.Configured {
 			result["message"] = "Profil asistenta nie je nakonfigurovaný."
@@ -90,6 +95,9 @@ func (s *Server) createAssistantConversation(w http.ResponseWriter, request *htt
 		writeError(w, http.StatusUnprocessableEntity, "invalid_mode", "Vyberte režim otázok alebo úprav.")
 		return
 	}
+	if !s.permitAssistantMode(w, request, auth, input.PrimaryMode) {
+		return
+	}
 	conversation, err := s.repository.CreateAssistantConversation(request.Context(), auth.Session.OrganizationID, auth.Session.User.ID, input.PrimaryMode)
 	if err != nil {
 		s.handleError(w, err)
@@ -141,6 +149,9 @@ func (s *Server) updateAssistantConversation(w http.ResponseWriter, request *htt
 		writeError(w, http.StatusConflict, "assistant_busy", "Počkajte na dokončenie aktuálnej správy alebo ju zastavte.")
 		return
 	}
+	if !s.permitAssistantMode(w, request, auth, *input.PrimaryMode) {
+		return
+	}
 	if err := s.repository.SetAssistantPrimaryMode(request.Context(), auth.Session.OrganizationID, auth.Session.User.ID, conversation.ID, *input.PrimaryMode); err != nil {
 		s.handleError(w, err)
 		return
@@ -174,6 +185,9 @@ func (s *Server) submitAssistantMessage(w http.ResponseWriter, request *http.Req
 	}
 	if input.Mode != model.AssistantQA && input.Mode != model.AssistantEdit {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_mode", "Vyberte režim otázok alebo úprav.")
+		return
+	}
+	if !s.permitAssistantMode(w, request, auth, input.Mode) {
 		return
 	}
 	turn, err := s.assistant.submit(request.Context(), conversation, input.Mode, input.Content)

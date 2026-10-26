@@ -12,6 +12,9 @@ import (
 
 func (s *Server) internalHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /internal/v1/repository-sync", s.privateRepositoryStatus)
+	mux.HandleFunc("POST /internal/v1/repository-snapshots", s.importRepositorySnapshot)
+	mux.HandleFunc("POST /internal/v1/repository-sync/status", s.recordRepositoryPoll)
 	mux.HandleFunc("POST /internal/v1/hermes/tools/{tool}", s.handleHermesTool)
 	mux.HandleFunc("GET /internal/v1/development/pending", s.handleDevelopmentPending)
 	return s.recover(s.securityHeaders(mux))
@@ -56,6 +59,17 @@ func (s *Server) handleHermesTool(w http.ResponseWriter, request *http.Request) 
 	if !active {
 		writeError(w, http.StatusForbidden, "inactive_hermes_turn", "Hermes session has no active Viki turn.")
 		return
+	}
+	if mode == model.AssistantEdit {
+		status, err := s.workspaceStatus(request.Context(), turn.OrganizationID)
+		if err != nil {
+			s.handleError(w, err)
+			return
+		}
+		if status.Mode == "git_managed" {
+			s.handleError(w, store.ErrReadOnly)
+			return
+		}
 	}
 	conversation, err := s.repository.AssistantConversation(request.Context(), turn.OrganizationID, turn.UserID, turn.ConversationID)
 	if err != nil || !assistantBindingMatches(conversation, turn, sessionID) {
@@ -268,7 +282,14 @@ func (s *Server) handleHermesGetPage(w http.ResponseWriter, request *http.Reques
 		s.handleError(w, err)
 		return
 	}
+	if detail.Page.Archived {
+		s.handleError(w, store.ErrNotFound)
+		return
+	}
 	result := map[string]any{"page": detail.Page}
+	if detail.RepositoryRevision != nil {
+		result["repositoryRevision"] = detail.RepositoryRevision
+	}
 	if detail.ApprovedRevision != nil {
 		result["approvedRevision"] = detail.ApprovedRevision
 	}
@@ -297,7 +318,8 @@ func (s *Server) handleHermesGetRevision(w http.ResponseWriter, request *http.Re
 	}
 	approved := detail.Page.ApprovedRevisionID != nil && *detail.Page.ApprovedRevisionID == revision.ID
 	currentDraft := detail.Page.LatestDraftRevisionID != nil && *detail.Page.LatestDraftRevisionID == revision.ID
-	if !approved && !currentDraft {
+	repositoryBaseline := detail.Page.RepositoryRevisionID != nil && *detail.Page.RepositoryRevisionID == revision.ID && !detail.Page.Archived
+	if !approved && !currentDraft && !repositoryBaseline {
 		s.handleError(w, store.ErrNotFound)
 		return
 	}
