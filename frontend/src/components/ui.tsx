@@ -29,7 +29,7 @@ export function statusLabel(status: RevisionStatus, t: Translate): string {
 // titles in the stored canonical content rather than the reading interface.
 export function revisionBody(revision: Revision): string {
   if (revision.status !== 'repository_baseline') return revision.bodyMd
-  const lines = revision.bodyMd.replace(/^<!-- business-id: [^\r\n]+ -->\r?\n?/, '').trimStart().split('\n')
+  const lines = revision.bodyMd.replace(/^(?:\s*<!--[\s\S]*?-->)+\s*/, '').trimStart().split('\n')
   if (lines[0] === `# ${revision.title}`) lines.shift()
   return lines.join('\n').trimStart()
 }
