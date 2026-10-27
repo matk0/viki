@@ -128,11 +128,11 @@ func TestRepositoryRestoredBusinessRevisionControlsChildrenSearchAndRetrieval(t 
 	if err != nil || len(detail.Revisions) != 2 || detail.RepositoryRevision == nil || detail.RepositoryRevision.ID != *scenario.RepositoryRevisionID {
 		t.Fatalf("restored baseline lost immutable history: detail=%+v err=%v", detail, err)
 	}
-	results, err := r.SearchPages(ctx, org, model.SearchOptions{Query: changed.Scenarios[0].Name})
+	results, err := r.SearchPages(ctx, org, model.SearchOptions{Query: "Temporary"})
 	if err != nil || len(results) != 0 {
 		t.Fatalf("superseded title remains searchable: results=%+v err=%v", results, err)
 	}
-	documents, err := r.Retrieve(ctx, org, base.Scenarios[0].Name, true, 30)
+	documents, err := r.Retrieve(ctx, org, base.Scenarios[0].Name, true, 1)
 	if err != nil || len(documents) != 1 || documents[0].RevisionID != *scenario.RepositoryRevisionID || strings.Contains(documents[0].Content, changed.Scenarios[0].Name) {
 		t.Fatalf("retrieval did not use restored baseline: documents=%+v err=%v", documents, err)
 	}

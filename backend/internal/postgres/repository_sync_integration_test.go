@@ -261,7 +261,7 @@ func TestRepositoryRemovalAdditionReappearanceAndConcurrentImports(t *testing.T)
 	if err != nil || !history.Page.Archived || len(history.Revisions) != 1 {
 		t.Fatal(history, err)
 	}
-	documents, _ := r.Retrieve(ctx, org, "Another consent outcome", false, 10)
+	documents, _ := r.Retrieve(ctx, org, "Another", false, 10)
 	if len(documents) != 0 {
 		t.Fatal("removed scenario appears in Q&A", documents)
 	}
