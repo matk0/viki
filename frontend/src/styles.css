@@ -125,6 +125,7 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 .viki-select.compact .viki-select-menu button { min-height: 32px; padding: 0 8px; border-radius: 7px; font-size: 12px; }
 .filter-select { flex: 0 0 190px; width: 190px; }
 .search-kind-select { flex: 0 0 170px; width: 170px; }
+.concept-columns > :only-child { grid-column: 1 / -1; }
 .concept-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .library-group, .feature-card { overflow: hidden; }
 .feature-card { transition: background-color .15s ease; }
@@ -164,6 +165,7 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 .search-result-copy p { margin: 6px 0 0; color: #696969; font-size: 13px; line-height: 1.5; }
 
 .document-layout { --document-top: 48px; display: grid; grid-template-columns: minmax(0, 780px) minmax(300px, 360px); justify-content: center; gap: 34px; width: calc(100% - 72px); max-width: 1240px; margin: 0 auto; padding: var(--document-top) 0 90px; }
+.document-layout.document-readonly { grid-template-columns: minmax(0, 780px); }
 .document-page { position: relative; min-width: 0; padding: 34px 40px 48px; border: 2px solid #d0d0d0; border-radius: 24px; background: #fff; box-shadow: 0 6px 0 #dedede; }
 .document-breadcrumb { display: flex; align-items: center; gap: 8px; min-height: 36px; margin-bottom: 30px; padding-right: 230px; color: #666; font-size: 14px; font-weight: 700; }
 .document-breadcrumb a { display: flex; align-items: center; gap: 4px; }
@@ -601,15 +603,3 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 @media (prefers-reduced-motion: reduce) {
   .assistant-turn-star, .assistant-turn-animation > i, .assistant-turn-timeline > div.active > span { animation: none; }
 }
-
-.repository-sync { display: flex; flex-direction: column; gap: .4rem; padding: 1rem 2rem; border-bottom: 1px solid #ddd; background: #fafafa; overflow-wrap: anywhere; }
-.repository-sync.error { border-left: 3px solid #666; }
-@media (max-width: 930px) { .repository-sync { padding-top: 3rem; } }
-.repository-sync small, .repository-provenance small { color: #666; }
-.repository-card, .repository-provenance { display: flex; flex-direction: column; gap: .6rem; padding: 1.2rem; margin: 1rem 0; overflow-wrap: anywhere; }
-.repository-provenance { border: 1px solid #ddd; border-radius: .6rem; }
-.repository-scenario { padding-left: 1rem; }
-.repository-gherkin { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #ddd; background: #fafafa; padding: 1.2rem; border-radius: .4rem; }
-.repository-document h2 { margin-top: 2rem; }
-.repository-document section button { margin: .3rem; }
-.status-badge.repository_baseline { color: #444; background: #eee; }

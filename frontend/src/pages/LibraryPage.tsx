@@ -7,19 +7,16 @@ import { PageIcon } from '../components/PageIcon'
 import { VikiSelect } from '../components/VikiSelect'
 import { EmptyState, kindLabel, StatusBadge } from '../components/ui'
 import { useI18n } from '../i18n'
-import { RepositoryLibrary } from '../components/RepositoryWorkspace'
 
 type StatusFilterValue = 'all' | 'approved' | 'draft'
 
 export function LibraryPage({ kind }: { kind: 'concept' | 'feature' }) {
- const { syncStatus } = useWorkspace()
- return syncStatus?.mode === 'git_managed' ? <RepositoryLibrary kind={kind} /> : <HumanLibraryPage kind={kind} />
-}
-function HumanLibraryPage({ kind }: { kind: 'concept' | 'feature' }) {
   const { t } = useI18n()
-  const { pages, loadingPages, openNewPage, readOnly } = useWorkspace()
+  const { pages, loadingPages, openNewPage, readOnly, syncStatus } = useWorkspace()
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<StatusFilterValue>('all')
+  const [selectedStatus, setStatus] = useState<StatusFilterValue>('all')
+  const gitManaged = syncStatus?.mode === 'git_managed'
+  const status = gitManaged ? 'all' : selectedStatus
   const children = useMemo(() => new Map(pages.filter((page) => page.kind === 'scenario').map((page) => [page.id, page])), [pages])
   const childGroups = useMemo(() => {
     const result = new Map<string, Page[]>()
@@ -53,7 +50,7 @@ function HumanLibraryPage({ kind }: { kind: 'concept' | 'feature' }) {
     </header>
     <div className="library-toolbar">
       <label className="search-field"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={kind === 'concept' ? t('library.searchConcepts') : t('library.searchFeatures')} /></label>
-      <StatusFilter value={status} onChange={setStatus} />
+      <StatusFilter value={status} onChange={setStatus} disabled={gitManaged} />
     </div>
     {loadingPages ? <div className="skeleton-list" /> : relevant.length === 0 ? <EmptyState icon={kind === 'concept' ? <BookOpen /> : <GitBranch />} title={t('library.none')} body={t('library.noneBody')} /> : kind === 'concept' ? <ConceptList pages={relevant} status={status} /> : <FeatureList pages={relevant} children={visibleChildGroups} status={status} />}
   </div>
@@ -64,7 +61,7 @@ function matchesStatus(page: Page, status: StatusFilterValue): boolean {
   return status === 'draft' ? page.hasDraft : page.approved
 }
 
-function StatusFilter({ value, onChange }: { value: StatusFilterValue; onChange: (value: StatusFilterValue) => void }) {
+function StatusFilter({ value, onChange, disabled }: { value: StatusFilterValue; onChange: (value: StatusFilterValue) => void; disabled: boolean }) {
   const { t } = useI18n()
   const statusOptions = [
     { value: 'all', label: t('library.all') },
@@ -74,6 +71,7 @@ function StatusFilter({ value, onChange }: { value: StatusFilterValue; onChange:
   const selected = statusOptions.find((option) => option.value === value)!
   return <VikiSelect
     className="filter-select"
+    disabled={disabled}
     ariaLabel={t('library.filterLabel', { status: selected.label })}
     listboxLabel={t('library.filterList')}
     value={value}
@@ -87,7 +85,10 @@ function normalizeSearchText(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('sk')
 }
 
-function displayRevision(page: Page, status: StatusFilterValue): { title: string; status: 'approved' | 'draft' } {
+type DisplayStatus = 'approved' | 'draft' | 'repository_baseline'
+
+function displayRevision(page: Page, status: StatusFilterValue): { title: string; status: DisplayStatus } {
+  if (page.repositoryRevisionId) return { title: page.title, status: 'repository_baseline' }
   if (status === 'approved' && page.approved) return { title: page.approvedRevisionTitle ?? page.title, status: 'approved' }
   if (status === 'draft' && page.hasDraft) return { title: page.draftRevisionTitle ?? page.title, status: 'draft' }
   if (page.hasDraft) return { title: page.draftRevisionTitle ?? page.title, status: 'draft' }
@@ -95,12 +96,13 @@ function displayRevision(page: Page, status: StatusFilterValue): { title: string
   return { title: page.title, status: 'draft' }
 }
 
-function pageRevisionHref(page: Page, status: 'approved' | 'draft'): string {
+function pageRevisionHref(page: Page, status: DisplayStatus): string {
   if (status === 'draft' && page.latestDraftRevisionId) return `/page/${page.id}?revision=${page.latestDraftRevisionId}`
   return `/page/${page.id}`
 }
 
 function PageStatusPills({ page }: { page: Page }) {
+  if (page.repositoryRevisionId) return null
   return <span className="page-status-pills">
     {page.approved && <StatusBadge status="approved" />}
     {(page.hasDraft || !page.approved) && <StatusBadge status="draft" />}
@@ -109,6 +111,9 @@ function PageStatusPills({ page }: { page: Page }) {
 
 function ConceptList({ pages, status }: { pages: Page[]; status: StatusFilterValue }) {
   const { t } = useI18n()
+  // Imported concepts have no grammatical subtype. Keep the original panel
+  // styling without inventing noun/verb classifications.
+  if (pages.some((page) => !page.conceptKind)) return <div className="concept-columns"><ConceptGroup title={t('kind.concepts')} pages={pages} status={status} /></div>
   const nouns = pages.filter((page) => page.conceptKind === 'noun')
   const verbs = pages.filter((page) => page.conceptKind === 'verb')
   return <div className="concept-columns"><ConceptGroup title={t('library.nouns')} pages={nouns} status={status} /><ConceptGroup title={t('library.verbs')} pages={verbs} status={status} /></div>
@@ -134,6 +139,6 @@ function FeatureList({ pages, children, status }: { pages: Page[]; children: Map
   })}</div>
 }
 
-function LibraryPageIcon({ page, status }: { page: Page; status: 'approved' | 'draft' }) {
+function LibraryPageIcon({ page, status }: { page: Page; status: DisplayStatus }) {
   return <span className={`page-icon-box ${page.kind} ${status}`}><PageIcon page={page} draft={status === 'draft'} /></span>
 }
