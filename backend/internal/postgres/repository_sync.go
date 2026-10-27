@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -328,16 +329,17 @@ func (r *Repository) searchRepositoryPages(ctx context.Context, org string, opti
 			if v.ID != *p.RepositoryRevisionID {
 				continue
 			}
-			text := v.Title + "\n" + v.BodyMD
+			text := p.RepositorySource.ExternalID + "\n" + v.Title + "\n" + v.BodyMD
 			for _, st := range v.Steps {
 				text += "\n" + st.Text
 			}
-			if query == "" || strings.Contains(strings.ToLower(text), query) {
-				results = append(results, model.SearchResult{Page: p, RevisionID: v.ID, Excerpt: v.BodyMD, Score: 1, Draft: false})
+			if score := repositorySearchScore(text, query); score > 0 {
+				results = append(results, model.SearchResult{Page: p, RevisionID: v.ID, Excerpt: v.BodyMD, Score: score, Draft: false})
 			}
 			break
 		}
 	}
+	sort.SliceStable(results, func(i, j int) bool { return results[i].Score > results[j].Score })
 	if options.Limit > 0 && len(results) > options.Limit {
 		results = results[:options.Limit]
 	}
@@ -361,8 +363,8 @@ func (r *Repository) retrieveRepositoryPages(ctx context.Context, org, query str
 		for _, step := range v.Steps {
 			content += "\n" + strings.ToUpper(string(step.Keyword)) + " " + step.Text
 		}
-		content += "\nRepository baseline; source commit " + v.RepositorySource.Commit + "; verified at " + v.RepositorySource.VerifiedCommit + "; not human approval or production deployment."
-		documents = append(documents, model.RetrievedDocument{RevisionID: v.ID, PageID: v.PageID, PageTitle: v.Title, Content: content, Score: 1, Draft: false})
+		content += "\nRepository baseline " + v.RepositorySource.ExternalID + "; source commit " + v.RepositorySource.Commit + "; verified at " + v.RepositorySource.VerifiedCommit + "; not human approval or production deployment."
+		documents = append(documents, model.RetrievedDocument{RevisionID: v.ID, PageID: v.PageID, PageTitle: v.Title, Content: content, Score: result.Score, Draft: false})
 	}
 	return documents, nil
 }
