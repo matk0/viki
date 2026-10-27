@@ -63,3 +63,39 @@ it('shows the revision history title without a header eyebrow', () => {
 it('keeps slight spacing between revision buttons', () => {
   expect(styles).toMatch(/\.history-layout\s*>\s*aside\s+button\s*\+\s*button\s*\{[^}]*margin-top:\s*4px;/s)
 })
+
+it('keeps imported history read-only, rejects other pages, and ignores superseded history responses', async () => {
+  const user = userEvent.setup()
+  const baseline: Revision = { ...approved, status: 'repository_baseline', title: 'First business version', bodyMd: '# First business version\n\nBusiness prose.' }
+  const newer: Revision = { ...draft, status: 'repository_baseline', title: 'Second business version' }
+  const imported: PageDetail = { ...detail, approvedRevision: undefined, draftRevision: undefined, repositoryRevision: baseline, revisions: [baseline, newer] }
+  let resolve!: (revision: Revision) => void
+  let reject!: (error: Error) => void
+  const view = render(<RevisionHistory detail={imported} onClose={vi.fn()} />)
+  expect(screen.getByRole('heading', { name: 'First business version' })).toBeVisible()
+  expect(screen.queryByText('Repository baseline')).toBeNull()
+  mocks.revision.mockImplementationOnce(() => new Promise<Revision>(done => { resolve = done }))
+  await user.click(screen.getByRole('button', { name: /Verzia #1/ }))
+  mocks.revision.mockResolvedValueOnce(newer)
+  await user.click(screen.getByRole('button', { name: /Verzia #2/ }))
+  await screen.findByRole('heading', { name: 'Second business version' })
+  await act(async () => resolve(baseline))
+  expect(screen.getByRole('heading', { name: 'Second business version' })).toBeVisible()
+  mocks.revision.mockImplementationOnce(() => new Promise<Revision>((_, fail) => { reject = fail }))
+  await user.click(screen.getByRole('button', { name: /Verzia #1/ }))
+  mocks.revision.mockResolvedValueOnce(newer)
+  await user.click(screen.getByRole('button', { name: /Verzia #2/ }))
+  await screen.findByRole('heading', { name: 'Second business version' })
+  await act(async () => reject(new Error('superseded failure')))
+  expect(screen.queryByRole('alert')).toBeNull()
+  mocks.revision.mockResolvedValueOnce({ ...baseline, pageId: 'wrong-page' })
+  await user.click(screen.getByRole('button', { name: /Verzia #1/ }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Stránku sa nepodarilo načítať.')
+  mocks.revision.mockRejectedValueOnce(new Error('offline'))
+  await user.click(screen.getByRole('button', { name: /Verzia #1/ }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Stránku sa nepodarilo načítať.')
+  mocks.revision.mockImplementationOnce(() => new Promise<Revision>(done => { resolve = done }))
+  await user.click(screen.getByRole('button', { name: /Verzia #1/ }))
+  view.unmount()
+  await act(async () => resolve(baseline))
+})

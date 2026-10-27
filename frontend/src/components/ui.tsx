@@ -1,7 +1,7 @@
 import { Children, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Page, RevisionStatus } from '../api/types'
+import type { Page, Revision, RevisionStatus } from '../api/types'
 import { translate, useI18n, type Locale, type Translate } from '../i18n'
 
 export function Spinner({ label }: { label?: string }) {
@@ -16,12 +16,22 @@ export function EmptyState({ icon, title, body, action }: { icon?: ReactNode; ti
 export function StatusBadge({ status, page }: { status?: RevisionStatus; page?: Page }) {
   const { t } = useI18n()
   const resolved: RevisionStatus = status ?? (page?.repositoryRevisionId ? 'repository_baseline' : page?.hasDraft ? 'draft' : page?.approved ? 'approved' : 'draft')
+  if (resolved === 'repository_baseline') return null
   return <span className={`status-badge ${resolved}`}>{statusLabel(resolved, t)}</span>
 }
 
 export function statusLabel(status: RevisionStatus, t: Translate): string {
-  if (status === 'repository_baseline') return 'Repository baseline'
+  if (status === 'repository_baseline') return t('status.readOnly')
   return status === 'approved' ? t('status.approved') : status === 'superseded' ? t('status.superseded') : t('status.draft')
+}
+
+// Render the business prose, leaving source identifiers and duplicate document
+// titles in the stored canonical content rather than the reading interface.
+export function revisionBody(revision: Revision): string {
+  if (revision.status !== 'repository_baseline') return revision.bodyMd
+  const lines = revision.bodyMd.replace(/^(?:\s*<!--[\s\S]*?-->)+\s*/, '').trimStart().split('\n')
+  if (lines[0] === `# ${revision.title}`) lines.shift()
+  return lines.join('\n').trimStart()
 }
 
 interface InlineMarkdownLink {
