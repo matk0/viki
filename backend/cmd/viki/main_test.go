@@ -12,7 +12,9 @@ import (
 
 	"viki/internal/config"
 	"viki/internal/hermes"
+	"viki/internal/localize"
 	"viki/internal/postgres"
+	"viki/internal/store"
 )
 
 var errStartupTest = errors.New("startup test failure")
@@ -341,4 +343,17 @@ func TestRunConfiguresRepositoryAuthorityBeforeServing(t *testing.T) {
 			t.Fatal("served before authority setup")
 		}
 	}
+}
+
+type localizationRuntimeRepository struct {
+	store.Repository
+	localize.Store
+}
+
+func (*localizationRuntimeRepository) ClaimLocalization(context.Context) (*localize.Job, error) {
+	return nil, nil
+}
+func TestRuntimeStartsConfiguredLocalizationAndStopsIt(t *testing.T) {
+	app := newRuntimeApplication(runtimeDatabase{repository: &localizationRuntimeRepository{}}, runtimeGateway{}, config.Config{LocalizationAPIKey: "test-key", LocalizationModel: "test-model"}, testLogger())
+	app.close()
 }

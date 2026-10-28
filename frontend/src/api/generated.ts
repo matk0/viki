@@ -466,7 +466,20 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        LocalizedContent: {
+            /** Format: uuid */
+            revisionId: string;
+            sourceHash: string;
+            version: number;
+            title: string;
+            bodyMd: string;
+            stepTexts: string[];
+        };
+        Localizations: {
+            sk?: components["schemas"]["LocalizedContent"];
+        };
         Page: {
+            localizations?: components["schemas"]["Localizations"];
             /** Format: uuid */
             repositoryRevisionId?: string;
             repositorySource?: components["schemas"]["RepositorySource"];
@@ -529,6 +542,7 @@ export interface components {
             references: components["schemas"]["PageReference"][];
         };
         Revision: components["schemas"]["RevisionContent"] & {
+            localizations?: components["schemas"]["Localizations"];
             repositorySource?: components["schemas"]["RepositorySource"];
             /** Format: uuid */
             id: string;
@@ -545,6 +559,7 @@ export interface components {
             approvedAt?: string;
         };
         RevisionSummary: {
+            localizations?: components["schemas"]["Localizations"];
             /** Format: uuid */
             id: string;
             number: number;
@@ -632,6 +647,9 @@ export interface components {
             total: number;
         };
         Citation: {
+            localizedTitles?: {
+                [key: string]: string;
+            };
             /** Format: uuid */
             revisionId: string;
             /** Format: uuid */
@@ -698,6 +716,8 @@ export interface components {
             primaryMode?: components["schemas"]["AssistantMode"];
         };
         SubmitAssistantMessageRequest: {
+            /** @enum {string} */
+            locale?: "sk" | "en";
             content: string;
             mode: components["schemas"]["AssistantMode"];
         };

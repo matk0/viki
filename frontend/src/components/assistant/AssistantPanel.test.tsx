@@ -33,7 +33,7 @@ vi.mock('../../api/client', () => ({
 }))
 
 vi.mock('../../workspace', () => ({
-  useWorkspace: () => ({ reloadPages: mocks.reloadPages, readOnly: mocks.readOnly }),
+  useWorkspace: () => ({ reloadPages: mocks.reloadPages, readOnly: mocks.readOnly, pages: [{ repositoryRevisionId: 'revision-approved-4', title: 'Zmluva pre domácnosť' }] }),
 }))
 
 const status: AssistantStatus = {

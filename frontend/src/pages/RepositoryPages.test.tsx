@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { Router } from '../router'
+import { I18nProvider, LanguageSwitcher } from '../i18n'
 import type { Page, PageDetail, RepositorySource, Revision, WorkspaceSyncStatus } from '../api/types'
 import { LibraryPage } from './LibraryPage'
 import { PagePage } from './PagePage'
@@ -69,7 +70,7 @@ it('retains feature children, archived records and minimal imported prose withou
   mocks.page.mockResolvedValue({ ...detail, page: { ...feature, archived: true }, repositoryRevision: { ...version, pageId: 'feature', title: feature.title, bodyMd: 'Feature prose.', steps: [], references: [] }, children: [page] })
   render(<Router><PagePage pageId="feature" /></Router>)
   await screen.findByRole('heading', { name: feature.title })
-  expect(screen.getByRole('status')).toHaveTextContent('Táto stránka je archivovaná.')
+  expect(screen.getAllByRole('status').some((status) => status.textContent?.includes('Táto stránka je archivovaná.'))).toBe(true)
   expect(screen.getByRole('link', { name: /Preserve withdrawal/ })).toHaveAttribute('href', '/page/page')
   expect(screen.getByRole('button', { name: 'Pridať scenár' })).toBeDisabled()
   expect(screen.getByText('Feature prose.')).toBeVisible()
@@ -110,4 +111,24 @@ it('does not turn imported pages into draft or approved badges', () => {
   expect(view.container).toBeEmptyDOMElement()
   view.rerender(<StatusBadge status="repository_baseline" />)
   expect(view.container).toBeEmptyDOMElement()
+})
+
+it('switches source and Slovak prose in the same reader and exact historical revision', async () => {
+  const sk = { revisionId: version.id, sourceHash: 'business-hash', version: 1, title: 'Zachovať odvolanie súhlasu', bodyMd: 'Zmena e-mailu ani skupiny neobnoví odber.', stepTexts: ['zákazník odvolal súhlas', 'zmení sa e-mail a skupina', 'odber zostáva zrušený'] }
+  mocks.page.mockResolvedValue({ ...detail, repositoryRevision: { ...version, localizations: { sk } } })
+  mocks.revision.mockResolvedValue({ ...version, localizations: { sk } })
+  const view = render(<I18nProvider><Router><LanguageSwitcher /><PagePage pageId="page" /></Router></I18nProvider>)
+  await screen.findByRole('heading', { name: sk.title })
+  expect(screen.getByText(sk.bodyMd)).toBeVisible()
+  expect(screen.getByText(sk.stepTexts[2])).toBeVisible()
+  expect(screen.queryByRole('status')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Nová verzia' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'História' }))
+  expect(screen.getAllByText(sk.stepTexts[2])).toHaveLength(2)
+  fireEvent.click(screen.getByRole('button', { name: 'Zavrieť' }))
+  fireEvent.click(screen.getByRole('switch', { name: 'Jazyk' }))
+  await screen.findByRole('heading', { name: page.title })
+  expect(screen.getByText('Original English business prose.')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'New version' })).toBeDisabled()
+  expect(view.container.querySelector('.repository-source')).toBeNull()
 })

@@ -12,6 +12,7 @@ import (
 )
 
 type Options struct {
+	Localize               func(context.Context)
 	SnapshotImportToken    string
 	CookieSecure           bool
 	SessionTTL             time.Duration
@@ -39,6 +40,7 @@ type Application struct {
 	public   http.Handler
 	internal http.Handler
 	cancel   context.CancelFunc
+	workers  sync.WaitGroup
 }
 
 type loginLimiter struct {
@@ -97,16 +99,21 @@ func NewApplication(repository store.Repository, gateway hermes.Gateway, options
 	mux.HandleFunc("/internal/", http.NotFound)
 	mux.HandleFunc("/", server.serveFrontend)
 	publicHandler := server.recover(server.securityHeaders(server.requestLog(mux)))
-	return &Application{
+	application := &Application{
 		public:   publicHandler,
 		internal: server.internalHandler(),
 		cancel:   cancel,
 	}
+	if options.Localize != nil {
+		application.workers.Add(1)
+		go func() { defer application.workers.Done(); options.Localize(ctx) }()
+	}
+	return application
 }
 
 func (a *Application) PublicHandler() http.Handler   { return a.public }
 func (a *Application) InternalHandler() http.Handler { return a.internal }
-func (a *Application) Close()                        { a.cancel() }
+func (a *Application) Close()                        { a.cancel(); a.workers.Wait() }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

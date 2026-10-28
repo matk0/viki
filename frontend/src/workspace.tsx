@@ -1,5 +1,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api/client'
+import { useI18n } from './i18n'
+import { localizedPage } from './localization'
 import type { Page, PageKind, WorkspaceSyncStatus } from './api/types'
 
 interface WorkspaceValue {
@@ -20,6 +22,7 @@ interface WorkspaceValue {
 const WorkspaceContext = createContext<WorkspaceValue | null>(null)
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+ const { locale } = useI18n()
   const loadSequence = useRef(0)
   const [syncStatus, setSyncStatus] = useState<WorkspaceSyncStatus | null>(null)
   const [syncError, setSyncError] = useState('')
@@ -55,11 +58,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [])
   useEffect(() => { void reloadPages(); const timer = window.setInterval(() => void reloadPages(), 30000); return () => {loadSequence.current++; window.clearInterval(timer)} }, [reloadPages])
+  const displayedPages = useMemo(() => pages.map((page) => localizedPage(page, locale)), [pages, locale])
   const value = useMemo(() => ({
-    syncStatus, syncError, readOnly, pages, loadingPages, reloadPages,
+    syncStatus, syncError, readOnly, pages: displayedPages, loadingPages, reloadPages,
     assistantOpen, setAssistantOpen,
     newPageKind, newPageParentId, openNewPage, closeNewPage,
-  }), [syncStatus, syncError, readOnly, pages, loadingPages, reloadPages, assistantOpen, newPageKind, newPageParentId, openNewPage, closeNewPage])
+  }), [syncStatus, syncError, readOnly, displayedPages, loadingPages, reloadPages, assistantOpen, newPageKind, newPageParentId, openNewPage, closeNewPage])
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
 }
 

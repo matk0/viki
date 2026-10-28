@@ -8,8 +8,8 @@ import (
 // Rank keyword overlap so natural-language tool queries do not require one
 // contiguous phrase. Exact phrases retain priority over partial matches.
 func repositorySearchScore(text, query string) float64 {
-	text = strings.ToLower(text)
-	query = strings.ToLower(strings.TrimSpace(query))
+	text = normalizeRepositorySearch(text)
+	query = normalizeRepositorySearch(strings.TrimSpace(query))
 	if query == "" {
 		return 1
 	}
@@ -33,4 +33,17 @@ func repositorySearchScore(text, query string) float64 {
 		score++
 	}
 	return score
+}
+
+func normalizeRepositorySearch(text string) string {
+	return strings.Map(func(r rune) rune {
+		const accents = "áäčďéíĺľňóôŕšťúýž"
+		const plain = "aacdeillnoorstuyz"
+		for i, a := range []rune(accents) {
+			if r == a {
+				return []rune(plain)[i]
+			}
+		}
+		return r
+	}, strings.ToLower(text))
 }

@@ -67,6 +67,7 @@ type Session struct {
 }
 
 type Page struct {
+	Localizations         Localizations     `json:"localizations,omitempty"`
 	RepositoryRevisionID  *string           `json:"repositoryRevisionId,omitempty"`
 	RepositorySource      *RepositorySource `json:"repositorySource,omitempty"`
 	Archived              bool              `json:"archived,omitempty"`
@@ -122,6 +123,7 @@ type PageReference struct {
 }
 
 type Revision struct {
+	Localizations    Localizations     `json:"localizations,omitempty"`
 	RepositorySource *RepositorySource `json:"repositorySource,omitempty"`
 	ID               string            `json:"id"`
 	PageID           string            `json:"pageId"`
@@ -138,13 +140,14 @@ type Revision struct {
 }
 
 type RevisionSummary struct {
-	ID         string         `json:"id"`
-	Number     int            `json:"number"`
-	Status     RevisionStatus `json:"status"`
-	Title      string         `json:"title"`
-	CreatedBy  User           `json:"createdBy"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	ApprovedAt *time.Time     `json:"approvedAt,omitempty"`
+	Localizations Localizations  `json:"localizations,omitempty"`
+	ID            string         `json:"id"`
+	Number        int            `json:"number"`
+	Status        RevisionStatus `json:"status"`
+	Title         string         `json:"title"`
+	CreatedBy     User           `json:"createdBy"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	ApprovedAt    *time.Time     `json:"approvedAt,omitempty"`
 }
 
 type Comment struct {
@@ -334,19 +337,21 @@ type AssistantMessage struct {
 }
 
 type Citation struct {
-	RevisionID string `json:"revisionId"`
-	PageID     string `json:"pageId"`
-	PageTitle  string `json:"pageTitle"`
-	Draft      bool   `json:"draft"`
+	LocalizedTitles map[string]string `json:"localizedTitles,omitempty"`
+	RevisionID      string            `json:"revisionId"`
+	PageID          string            `json:"pageId"`
+	PageTitle       string            `json:"pageTitle"`
+	Draft           bool              `json:"draft"`
 }
 
 type RetrievedDocument struct {
-	RevisionID string  `json:"revisionId"`
-	PageID     string  `json:"pageId"`
-	PageTitle  string  `json:"pageTitle"`
-	Content    string  `json:"content"`
-	Draft      bool    `json:"draft"`
-	Score      float64 `json:"score"`
+	Localizations Localizations `json:"localizations,omitempty"`
+	RevisionID    string        `json:"revisionId"`
+	PageID        string        `json:"pageId"`
+	PageTitle     string        `json:"pageTitle"`
+	Content       string        `json:"content"`
+	Draft         bool          `json:"draft"`
+	Score         float64       `json:"score"`
 }
 
 type AIChangeOperation struct {

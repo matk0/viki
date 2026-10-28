@@ -165,6 +165,11 @@ func (r *Repository) ImportRepositorySnapshot(ctx context.Context, org string, s
 
 // repositoryVersions returns only immutable entries and their verified snapshot provenance.
 func (r *Repository) repositoryVersions(ctx context.Context, org, pageID, revisionID string) ([]model.Revision, error) {
+	localizations, err := r.repositoryLocalizations(ctx, org, pageID, revisionID)
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := r.pool.Query(ctx, `SELECT r.id::text,r.page_id::text,r.number,r.created_at,
  COALESCE(e.entry,r.entry),s.source_commit,s.run_id::text,s.run_attempt,s.imported_at,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('targetPageId',target.id::text,'targetTitle',related.entry->>'title','relation','uses') ORDER BY target.external_id)
@@ -194,6 +199,7 @@ func (r *Repository) repositoryVersions(ctx context.Context, org, pageID, revisi
 		source.Content = entry.SourceContent
 		source.ContentHash = entry.DocumentHash
 		source.VerifiedCommit = source.Commit
+		rev.Localizations = localizations[rev.ID]
 		rev.RepositorySource = &source
 		rev.Status = model.RevisionRepositoryBaseline
 		rev.Title = entry.Title
@@ -210,6 +216,11 @@ func (r *Repository) repositoryVersions(ctx context.Context, org, pageID, revisi
 	return result, rows.Err()
 }
 func (r *Repository) RepositoryPages(ctx context.Context, org string, kind *model.PageKind) ([]model.Page, error) {
+	localizations, err := r.repositoryLocalizations(ctx, org, "", "")
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := r.pool.Query(ctx, `SELECT p.id::text,p.kind,p.current_revision_id::text,p.created_at,e.entry,s.source_commit,s.run_id::text,s.run_attempt,s.imported_at
  FROM repository_pages p JOIN workspace_repository_sync w ON w.organization_id=p.organization_id JOIN repository_snapshots s ON s.id=w.current_snapshot_id JOIN repository_snapshot_entries e ON e.snapshot_id=s.id AND e.page_id=p.id
  WHERE p.organization_id=$1 AND NOT p.archived ORDER BY p.external_id`, org)
@@ -231,6 +242,7 @@ func (r *Repository) RepositoryPages(ctx context.Context, org string, kind *mode
 		if err = json.Unmarshal(data, &entry); err != nil {
 			return nil, err
 		}
+		page.Localizations = localizations[*page.RepositoryRevisionID]
 		page.Title = entry.Title
 		page.Slug = entry.ExternalID
 		page.UpdatedAt = source.ImportedAt
@@ -279,10 +291,11 @@ func (r *Repository) repositoryPageDetail(ctx context.Context, org, pageID strin
 	}
 	detail := model.PageDetail{Page: page, Revisions: []model.RevisionSummary{}, Comments: []model.Comment{}, Objections: []model.Objection{}, Children: []model.Page{}, ReviewStates: []model.RevisionReviewState{}}
 	for _, v := range versions {
-		detail.Revisions = append(detail.Revisions, model.RevisionSummary{ID: v.ID, Number: v.Number, Status: v.Status, Title: v.Title, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt})
+		detail.Revisions = append(detail.Revisions, model.RevisionSummary{Localizations: v.Localizations, ID: v.ID, Number: v.Number, Status: v.Status, Title: v.Title, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt})
 		if v.ID == *page.RepositoryRevisionID {
 			copy := v
 			detail.RepositoryRevision = &copy
+			detail.Page.Localizations = v.Localizations
 			detail.Page.RepositorySource = v.RepositorySource
 			detail.Page.UpdatedAt = v.RepositorySource.ImportedAt
 		}
@@ -333,6 +346,9 @@ func (r *Repository) searchRepositoryPages(ctx context.Context, org string, opti
 			for _, st := range v.Steps {
 				text += "\n" + st.Text
 			}
+			for _, localized := range v.Localizations {
+				text += "\n" + localized.Title + "\n" + localized.BodyMD + "\n" + strings.Join(localized.StepTexts, "\n")
+			}
 			if score := repositorySearchScore(text, query); score > 0 {
 				results = append(results, model.SearchResult{Page: p, RevisionID: v.ID, Excerpt: v.BodyMD, Score: score, Draft: false})
 			}
@@ -363,8 +379,11 @@ func (r *Repository) retrieveRepositoryPages(ctx context.Context, org, query str
 		for _, step := range v.Steps {
 			content += "\n" + strings.ToUpper(string(step.Keyword)) + " " + step.Text
 		}
+		for locale, localized := range v.Localizations {
+			content += "\nTranslation (" + locale + ") of this same English revision:\n" + localized.Title + "\n" + localized.BodyMD + "\n" + strings.Join(localized.StepTexts, "\n")
+		}
 		content += "\nRepository baseline " + v.RepositorySource.ExternalID + "; source commit " + v.RepositorySource.Commit + "; verified at " + v.RepositorySource.VerifiedCommit + "; not human approval or production deployment."
-		documents = append(documents, model.RetrievedDocument{RevisionID: v.ID, PageID: v.PageID, PageTitle: v.Title, Content: content, Score: result.Score, Draft: false})
+		documents = append(documents, model.RetrievedDocument{Localizations: v.Localizations, RevisionID: v.ID, PageID: v.PageID, PageTitle: v.Title, Content: content, Score: result.Score, Draft: false})
 	}
 	return documents, nil
 }

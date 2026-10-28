@@ -43,7 +43,18 @@ export interface User {
   createdAt: string
 }
 
+export interface LocalizedContent {
+ revisionId: string
+ sourceHash: string
+ version: number
+ title: string
+ bodyMd: string
+ stepTexts: string[]
+}
+export type Localizations = Partial<Record<'sk', LocalizedContent>>
+
 export interface Page {
+ localizations?: Localizations
  repositoryRevisionId?: string
  repositorySource?: RepositorySource
  archived?: boolean
@@ -89,6 +100,7 @@ export interface RevisionContent {
 }
 
 export interface Revision extends RevisionContent {
+ localizations?: Localizations
  repositorySource?: RepositorySource
   id: string
   pageId: string
@@ -101,6 +113,7 @@ export interface Revision extends RevisionContent {
 }
 
 export interface RevisionSummary {
+ localizations?: Localizations
   id: string
   number: number
   status: RevisionStatus
