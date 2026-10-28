@@ -43,6 +43,10 @@ func TestLocalizationPreservesCanonicalHistoryAndIdempotentImports(t *testing.T)
 	if job, err := r.ClaimLocalization(ctx); err != nil || job != nil {
 		t.Fatal(job, err)
 	}
+	status, err := r.WorkspaceSyncStatus(ctx, org)
+	if err != nil || status.LocalizationUpdatedAt == nil {
+		t.Fatal(status, err)
+	}
 	after, err := r.RepositoryPages(ctx, org, nil)
 	if err != nil {
 		t.Fatal(err)

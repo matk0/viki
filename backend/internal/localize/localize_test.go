@@ -39,6 +39,19 @@ func TestTranslationPreservesProtectedBusinessValues(t *testing.T) {
 		t.Fatal("added prose accepted")
 	}
 }
+func TestTranslationProtectsRelativeLinksAndFragments(t *testing.T) {
+	for _, body := range []string{"[Consent](../consent.md)", "[Consent](#consent)", "[Consent][ref]\n\n[ref]: ../consent.md", "[Consent](<../consent document.md>)"} {
+		source := Content{Title: "Consent", BodyMD: body, StepTexts: []string{}}
+		target := Content{Title: "Súhlas", BodyMD: strings.ReplaceAll(body, "Consent", "Súhlas"), StepTexts: []string{}}
+		if err := Validate(source, target); err != nil {
+			t.Fatal(err)
+		}
+		target.BodyMD = strings.ReplaceAll(target.BodyMD, "consent", "other")
+		if Validate(source, target) == nil {
+			t.Fatal("changed relative destination accepted")
+		}
+	}
+}
 func TestReadingBodyAndStrictJSON(t *testing.T) {
 	for _, test := range []struct{ body, want string }{
 		{"<!-- business-id: VOZ-CON-A -->\n<!-- relates-to: VOZ-CON-B -->\n# Title\n\nBody", "Body"}, {"# Title", ""}, {"Body", "Body"}, {"<!-- incomplete", "<!-- incomplete"}, {"# Other\nText", "# Other\nText"},

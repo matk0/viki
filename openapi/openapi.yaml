@@ -446,6 +446,7 @@ components:
       type: object
       required: [mode, pageCount, scenarioCount, stale]
       properties:
+        localizationUpdatedAt: { type: string, format: date-time }
         mode: { type: string, enum: [human_governed, git_managed] }
         repository: { type: string }
         lastCheckedAt: { type: string, format: date-time }

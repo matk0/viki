@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const PolicyVersion = "sk-v1"
+const PolicyVersion = "sk-v2"
 
 type Content struct {
 	Title     string   `json:"title"`
@@ -69,8 +69,16 @@ func Step(ctx context.Context, store Store, translator Translator) (bool, error)
 
 var protectedToken = regexp.MustCompile("https?://[^\\s<>)]+|VOZ-[A-Z0-9-]+|`[^`]*`|[0-9]+(?:[.,][0-9]+)?|\\{[A-Za-z_][A-Za-z0-9_]*\\}")
 
+var markdownDestination = regexp.MustCompile(`\]\(\s*(<[^>]+>|[^)\s]+)`)
+var markdownReference = regexp.MustCompile(`(?m)^\s{0,3}\[[^\]\n]+\]:\s*(<[^>]+>|[^\s]+)`)
+
 func protected(text string) []string {
 	values := protectedToken.FindAllString(text, -1)
+	for _, pattern := range []*regexp.Regexp{markdownDestination, markdownReference} {
+		for _, match := range pattern.FindAllStringSubmatch(text, -1) {
+			values = append(values, match[1])
+		}
+	}
 	slices.Sort(values)
 	return values
 }

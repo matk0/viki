@@ -400,6 +400,8 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         WorkspaceSyncStatus: {
+            /** Format: date-time */
+            localizationUpdatedAt?: string;
             /** @enum {string} */
             mode: "human_governed" | "git_managed";
             repository?: string;

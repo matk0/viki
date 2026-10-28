@@ -132,3 +132,25 @@ it('switches source and Slovak prose in the same reader and exact historical rev
   expect(screen.getByRole('button', { name: 'New version' })).toBeDisabled()
   expect(view.container.querySelector('.repository-source')).toBeNull()
 })
+
+it('adopts completed translations and reviewed corrections in the open reader and history without changing the CI receipt', async () => {
+  const view = render(<Router><PagePage pageId="page" /></Router>)
+  await screen.findByRole('heading', { name: page.title })
+  expect(screen.getByRole('status')).toHaveTextContent('Slovenský preklad sa pripravuje')
+  fireEvent.click(screen.getByRole('button', { name: 'História' }))
+  const sk = { revisionId: version.id, sourceHash: 'hash', version: 1, title: 'Odvolanie súhlasu', bodyMd: 'Zmena e-mailu neobnoví odber.', stepTexts: ['zákazník odvolal súhlas', 'zmení sa e-mail', 'odber zostáva zrušený'] }
+  const translated = { ...version, localizations: { sk } }
+  mocks.page.mockResolvedValue({ ...detail, repositoryRevision: translated, revisions: [translated] })
+  mocks.status = { ...mocks.status!, localizationUpdatedAt: '2026-10-28T09:00:00Z' }
+  view.rerender(<Router><PagePage pageId="page" /></Router>)
+  await screen.findByRole('heading', { name: sk.title, level: 1 })
+  expect(screen.getByRole('dialog')).toHaveTextContent(sk.title)
+  expect(screen.queryByRole('status')).toBeNull()
+  const corrected = { ...translated, localizations: { sk: { ...sk, version: 2, title: 'Zachovať odvolanie súhlasu' } } }
+  mocks.page.mockResolvedValue({ ...detail, repositoryRevision: corrected, revisions: [corrected] })
+  mocks.status = { ...mocks.status!, localizationUpdatedAt: '2026-10-28T09:01:00Z' }
+  view.rerender(<Router><PagePage pageId="page" /></Router>)
+  await screen.findByRole('heading', { name: corrected.localizations.sk.title, level: 1 })
+  expect(screen.getByRole('dialog')).toHaveTextContent(corrected.localizations.sk.title)
+  expect(mocks.status.runAttempt).toBe(1)
+})

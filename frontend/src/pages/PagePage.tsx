@@ -21,6 +21,7 @@ export function PagePage({ pageId }: { pageId: string }) {
   const detail = useMemo(() => sourceDetail ? localizedDetail(sourceDetail, locale) : null, [sourceDetail, locale])
   const [repositoryRevision, setRepositoryRevision] = useState<Revision>()
   const loadSequence = useRef(0)
+  const loadedIdentity = useRef<{ pageId: string; revisionId: string | null } | null>(null)
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(false)
   const [history, setHistory] = useState(false)
@@ -46,10 +47,13 @@ export function PagePage({ pageId }: { pageId: string }) {
     }
   }
   useEffect(() => {
-    setDetail(null); setRepositoryRevision(undefined); setEditing(false); setHistory(false); setRelatedOpen(false); setVersion('approved'); setError('')
+    if (loadedIdentity.current?.pageId !== pageId || loadedIdentity.current.revisionId !== requestedRevisionId) {
+      setDetail(null); setRepositoryRevision(undefined); setEditing(false); setHistory(false); setRelatedOpen(false); setVersion('approved'); setError('')
+    }
+    loadedIdentity.current = { pageId, revisionId: requestedRevisionId }
     void load()
     return () => { loadSequence.current++ }
-  }, [pageId, requestedRevisionId, syncStatus?.commit, syncStatus?.runId, syncStatus?.runAttempt])
+  }, [pageId, requestedRevisionId, syncStatus?.commit, syncStatus?.runId, syncStatus?.runAttempt, syncStatus?.localizationUpdatedAt])
   const revision = useMemo<Revision | undefined>(() => detail?.page.repositoryRevisionId ? repositoryRevision && localizedRevision(repositoryRevision, locale) : version === 'draft' ? detail?.draftRevision : detail?.approvedRevision, [detail, repositoryRevision, version, locale])
   const editableRevision = version === 'draft' ? detail?.draftRevision : detail?.draftRevision ? undefined : detail?.approvedRevision
   const changed = async () => { await load(); await reloadPages(); setEditing(false) }

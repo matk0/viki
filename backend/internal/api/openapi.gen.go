@@ -541,19 +541,20 @@ type User struct {
 
 // WorkspaceSyncStatus defines model for WorkspaceSyncStatus.
 type WorkspaceSyncStatus struct {
-	Commit         *string                 `json:"commit,omitempty"`
-	ContentHash    *string                 `json:"contentHash,omitempty"`
-	LastCheckedAt  *time.Time              `json:"lastCheckedAt,omitempty"`
-	LastError      *string                 `json:"lastError,omitempty"`
-	LastErrorAt    *time.Time              `json:"lastErrorAt,omitempty"`
-	LastImportedAt *time.Time              `json:"lastImportedAt,omitempty"`
-	Mode           WorkspaceSyncStatusMode `json:"mode"`
-	PageCount      int                     `json:"pageCount"`
-	Repository     *string                 `json:"repository,omitempty"`
-	RunAttempt     *int                    `json:"runAttempt,omitempty"`
-	RunId          *string                 `json:"runId,omitempty"`
-	ScenarioCount  int                     `json:"scenarioCount"`
-	Stale          bool                    `json:"stale"`
+	Commit                *string                 `json:"commit,omitempty"`
+	ContentHash           *string                 `json:"contentHash,omitempty"`
+	LastCheckedAt         *time.Time              `json:"lastCheckedAt,omitempty"`
+	LastError             *string                 `json:"lastError,omitempty"`
+	LastErrorAt           *time.Time              `json:"lastErrorAt,omitempty"`
+	LastImportedAt        *time.Time              `json:"lastImportedAt,omitempty"`
+	LocalizationUpdatedAt *time.Time              `json:"localizationUpdatedAt,omitempty"`
+	Mode                  WorkspaceSyncStatusMode `json:"mode"`
+	PageCount             int                     `json:"pageCount"`
+	Repository            *string                 `json:"repository,omitempty"`
+	RunAttempt            *int                    `json:"runAttempt,omitempty"`
+	RunId                 *string                 `json:"runId,omitempty"`
+	ScenarioCount         int                     `json:"scenarioCount"`
+	Stale                 bool                    `json:"stale"`
 }
 
 // WorkspaceSyncStatusMode defines model for WorkspaceSyncStatus.Mode.

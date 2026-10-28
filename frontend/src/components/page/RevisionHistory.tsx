@@ -29,7 +29,8 @@ export function RevisionHistory({ detail, onClose }: { detail: PageDetail; onClo
       if (sequence === loadSequence.current) setLoading(false)
     }
   }
-  const selected = sourceRevision && localizedRevision(sourceRevision, locale)
+  const translation = detail.revisions.find((revision) => revision.id === sourceRevision?.id)?.localizations
+  const selected = sourceRevision && localizedRevision({ ...sourceRevision, localizations: translation ?? sourceRevision.localizations }, locale)
   const comparisonRevision = selected && detail.approvedRevision?.id !== selected.id ? detail.approvedRevision : undefined
   return <Modal className="history-backdrop" onClose={onClose}><div className="history-modal" role="dialog" aria-modal="true" aria-labelledby="revision-history-title">
     <header><div><h2 id="revision-history-title">{t('history.title')}</h2></div><button className="icon-button" onClick={onClose} aria-label={t('common.close')}><X size={18} /></button></header>

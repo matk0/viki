@@ -34,4 +34,5 @@ it('never presents another revision’s translation or incomplete steps as the c
   expect(localizedPage({ ...page, localizations: undefined }, 'sk').title).toBe(page.title)
   const incomplete = { ...revision, localizations: { sk: { ...sk, stepTexts: [] } } }
   expect(localizedRevision(incomplete, 'sk')).toBe(incomplete)
+  expect(translationPending(incomplete, 'sk')).toBe(true)
 })

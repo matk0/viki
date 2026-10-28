@@ -52,8 +52,9 @@ func (r *Repository) WorkspaceSyncStatus(ctx context.Context, org string) (model
 	status := model.WorkspaceSyncStatus{Mode: "human_governed"}
 	err := r.pool.QueryRow(ctx, `SELECT w.repository,w.last_checked_at,w.last_error,w.last_error_at,s.imported_at,COALESCE(s.source_commit,''),COALESCE(s.run_id::text,''),COALESCE(s.run_attempt,0),COALESCE(s.content_hash,''),
  (SELECT count(*) FROM repository_pages p WHERE p.organization_id=w.organization_id AND NOT p.archived),
- (SELECT count(*) FROM repository_pages p WHERE p.organization_id=w.organization_id AND NOT p.archived AND p.kind='scenario')
- FROM workspace_repository_sync w LEFT JOIN repository_snapshots s ON s.id=w.current_snapshot_id WHERE w.organization_id=$1`, org).Scan(&status.Repository, &status.LastCheckedAt, &status.LastError, &status.LastErrorAt, &status.LastImportedAt, &status.Commit, &status.RunID, &status.RunAttempt, &status.ContentHash, &status.PageCount, &status.ScenarioCount)
+ (SELECT count(*) FROM repository_pages p WHERE p.organization_id=w.organization_id AND NOT p.archived AND p.kind='scenario'),
+ (SELECT max(t.created_at) FROM repository_localizations t JOIN repository_revisions r ON r.id=t.revision_id JOIN repository_pages p ON p.id=r.page_id WHERE p.organization_id=w.organization_id)
+ FROM workspace_repository_sync w LEFT JOIN repository_snapshots s ON s.id=w.current_snapshot_id WHERE w.organization_id=$1`, org).Scan(&status.Repository, &status.LastCheckedAt, &status.LastError, &status.LastErrorAt, &status.LastImportedAt, &status.Commit, &status.RunID, &status.RunAttempt, &status.ContentHash, &status.PageCount, &status.ScenarioCount, &status.LocalizationUpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return status, nil
 	}

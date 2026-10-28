@@ -28,5 +28,6 @@ export function localizedResult(result: SearchResult, locale: Locale): SearchRes
 }
 
 export function translationPending(revision: Revision, locale: Locale): boolean {
-  return locale === 'sk' && revision.status === 'repository_baseline' && !translation(revision.localizations, revision.id, locale)
+  const content = translation(revision.localizations, revision.id, locale)
+  return locale === 'sk' && revision.status === 'repository_baseline' && (!content || content.stepTexts.length !== revision.steps.length)
 }
