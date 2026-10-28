@@ -67,16 +67,57 @@ func Step(ctx context.Context, store Store, translator Translator) (bool, error)
 	return true, store.CompleteLocalization(ctx, *job, content, PolicyVersion)
 }
 
-var protectedToken = regexp.MustCompile("https?://[^\\s<>)]+|VOZ-[A-Z0-9-]+|`[^`]*`|[0-9]+(?:[.,][0-9]+)?|\\{[A-Za-z_][A-Za-z0-9_]*\\}")
+var protectedToken = regexp.MustCompile("https?://[^\\s<>]+|VOZ-[A-Z0-9-]+|`[^`]*`|[0-9]+(?:[.,][0-9]+)?|\\{[A-Za-z_][A-Za-z0-9_]*\\}")
 
-var markdownDestination = regexp.MustCompile(`\]\(\s*(<[^>]+>|[^)\s]+)`)
-var markdownReference = regexp.MustCompile(`(?m)^\s{0,3}\[[^\]\n]+\]:\s*(<[^>]+>|[^\s]+)`)
+var markdownLinkStart = regexp.MustCompile(`\]\(\s*`)
+var markdownReferenceStart = regexp.MustCompile(`(?m)^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*`)
 
+// Read balanced/escaped destinations rather than stopping at a URL's first ')'.
+func markdownDestination(text string, start int, inline bool) string {
+	if start == len(text) {
+		return ""
+	}
+	depth := 0
+	angled := text[start] == '<'
+	for i := start; i < len(text); i++ {
+		character := text[i]
+		if character == '\\' {
+			i++
+			continue
+		}
+		if angled {
+			if character == '>' {
+				return text[start : i+1]
+			}
+			continue
+		}
+		if strings.ContainsRune(" \t\r\n", rune(character)) {
+			return text[start:i]
+		}
+		if inline {
+			if character == '(' {
+				depth++
+			}
+			if character == ')' {
+				if depth == 0 {
+					return text[start:i]
+				}
+				depth--
+			}
+		}
+	}
+	return text[start:]
+}
 func protected(text string) []string {
 	values := protectedToken.FindAllString(text, -1)
-	for _, pattern := range []*regexp.Regexp{markdownDestination, markdownReference} {
-		for _, match := range pattern.FindAllStringSubmatch(text, -1) {
-			values = append(values, match[1])
+	for _, pattern := range []struct {
+		expression *regexp.Regexp
+		inline     bool
+	}{{markdownLinkStart, true}, {markdownReferenceStart, false}} {
+		for _, match := range pattern.expression.FindAllStringIndex(text, -1) {
+			if destination := markdownDestination(text, match[1], pattern.inline); destination != "" {
+				values = append(values, destination)
+			}
 		}
 	}
 	slices.Sort(values)

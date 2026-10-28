@@ -40,7 +40,7 @@ func TestTranslationPreservesProtectedBusinessValues(t *testing.T) {
 	}
 }
 func TestTranslationProtectsRelativeLinksAndFragments(t *testing.T) {
-	for _, body := range []string{"[Consent](../consent.md)", "[Consent](#consent)", "[Consent][ref]\n\n[ref]: ../consent.md", "[Consent](<../consent document.md>)"} {
+	for _, body := range []string{"[Consent](../consent.md)", "[Consent](#consent)", "[Consent][ref]\n\n[ref]: ../consent.md", "[Consent](<../consent document.md>)", "[Consent](../consent(v1).md)", "[Consent](../consent\\(v1\\).md)", "[Consent](../consent.md \"Title\")", "[Consent][ref]\n\n[ref]: ../consent\\ document.md"} {
 		source := Content{Title: "Consent", BodyMD: body, StepTexts: []string{}}
 		target := Content{Title: "Súhlas", BodyMD: strings.ReplaceAll(body, "Consent", "Súhlas"), StepTexts: []string{}}
 		if err := Validate(source, target); err != nil {
@@ -52,6 +52,29 @@ func TestTranslationProtectsRelativeLinksAndFragments(t *testing.T) {
 		}
 	}
 }
+func TestMarkdownDestinationEdges(t *testing.T) {
+	for _, test := range []struct {
+		text   string
+		inline bool
+		want   string
+	}{
+		{"", true, ""}, {"../document(v1).md)", true, "../document(v1).md"}, {"../document\\(v1\\).md)", true, "../document\\(v1\\).md"},
+		{"<../document name.md>", true, "<../document name.md>"}, {"<unfinished", true, "<unfinished"}, {"../document.md", false, "../document.md"},
+	} {
+		if got := markdownDestination(test.text, 0, test.inline); got != test.want {
+			t.Fatalf("%q became %q", test.text, got)
+		}
+	}
+	if len(protected("[empty]() [unfinished](")) != 0 {
+		t.Fatal("empty destinations treated as content")
+	}
+	source := Content{Title: "Source", BodyMD: "[source](../document(v1).md)", StepTexts: []string{}}
+	target := Content{Title: "Zdroj", BodyMD: "[preklad](../document(v1).pdf)", StepTexts: []string{}}
+	if Validate(source, target) == nil {
+		t.Fatal("balanced destination extension changed")
+	}
+}
+
 func TestReadingBodyAndStrictJSON(t *testing.T) {
 	for _, test := range []struct{ body, want string }{
 		{"<!-- business-id: VOZ-CON-A -->\n<!-- relates-to: VOZ-CON-B -->\n# Title\n\nBody", "Body"}, {"# Title", ""}, {"Body", "Body"}, {"<!-- incomplete", "<!-- incomplete"}, {"# Other\nText", "# Other\nText"},
