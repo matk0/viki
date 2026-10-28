@@ -36,3 +36,46 @@ The interoperability test requires the local artifact to remain ineligible. The 
 Before upgrading, take the existing consistent instance backup and verify its dump into a disposable database. Retain the previous image IDs, source release, Compose/environment and pre-upgrade database dump together. Migration 019 is additive, but an image-only rollback cannot correctly display the imported catalogue: restore the matching pre-upgrade database schema and image/configuration as a unit, after first saving the upgraded state. Never delete the canonical repository specs or any other Umbrel app's data. No whole-host reboot or application production deployment belongs to this feature.
 
 Live completion additionally requires genuine successful-main artifacts: the first automatic import and a subsequent automatic eligible main update must be observed. Unit fixtures, local exports and PR artifacts are not substitutes. Viki-to-Git editing/approval write-back, Gherkin execution by Viki, the software factory and Vozokany application deployment remain deferred.
+
+## Slovak presentation of canonical English revisions
+
+English remains the canonical source, including its exact source bytes, hashes,
+IDs, verification receipts and read-only status. Optional `localizations.sk` in
+catalogue/detail/revision/retrieval responses is derived content tied to the exact
+English business revision. The existing locale switch selects that presentation
+through one frontend projection. Titles, prose, BDD text, children, related labels,
+search excerpts and historical readers use it without adding another page layout.
+Missing translations show the current English revision with a small Slovak notice;
+an older translation is never attached to a newer revision. Existing chat messages
+retain their original text. New Q&A turns carry a validated `sk`/`en` response locale
+in the signed host envelope; citations retain canonical revision IDs and may carry
+localized titles. Search matches both languages, including Slovak diacritics.
+
+Migration 020 adds translation versions and a durable job table separately from
+business revisions. Set `VIKI_LOCALIZATION_ENABLED=true`, `OPENAI_API_KEY` and
+optionally `VIKI_LOCALIZATION_MODEL` (default: the existing `gpt-5.6-terra`) to run
+the background translator inside Viki. It uses the official Responses endpoint,
+strict structured output, no tools, no stored provider responses and a fixed farm
+terminology glossary. Reading never calls the model. Verified imports are independent
+of translation availability. The Git poller retains its existing capabilities and
+has no model credential. The Umbrel app receives the same existing provider key
+already used by its dedicated Hermes; the key is never returned to the browser.
+
+A database lease prevents two workers from claiming the same revision. Jobs have a
+ten-minute lease and at most three attempts, with five-minute backoff after a
+provider/validation failure. Cancellation releases runtime resources; an interrupted
+lease becomes eligible after its deadline. Structure, step count/order and protected
+numeric tokens, URLs, inline code, IDs and placeholders are checked before publishing
+one complete translation. These checks do not prove semantic equivalence: review
+business-critical Slovak wording and the initial backfill separately. Provider or
+translation errors retain the English baseline. Repeated CI receipts reuse existing
+business revisions and translations. Existing backups include both new tables.
+
+Translation corrections append a translation version without changing an English
+business revision. Operators can requeue an explicitly selected revision by resetting
+its job's `completed=false, attempts=0, available_at=now()` and clearing its lease;
+only do this after stopping localization and reviewing the change. Existing
+translations remain visible until the complete replacement is stored. There is no
+public translation-write route or human draft/approval workflow for this derived data.
+An image rollback to the previous release can leave migration 020 and its additive
+tables in place; preserve the pre-upgrade configuration, database and Hermes backup.

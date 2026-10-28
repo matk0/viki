@@ -9,6 +9,8 @@ import (
 )
 
 type Config struct {
+	LocalizationAPIKey     string
+	LocalizationModel      string
 	GitRepository          string
 	SnapshotImportToken    string
 	Address                string
@@ -53,6 +55,13 @@ func Load() (Config, error) {
 		FrontendDir:            env("FRONTEND_DIR", "../frontend/dist"),
 		DevelopmentTargetURL:   env("DEVELOPMENT_TARGET_URL", "http://127.0.0.1:8091"),
 		DevelopmentTargetToken: os.Getenv("DEVELOPMENT_TARGET_TOKEN"),
+	}
+	if envBool("VIKI_LOCALIZATION_ENABLED", false) {
+		cfg.LocalizationAPIKey = os.Getenv("OPENAI_API_KEY")
+		cfg.LocalizationModel = env("VIKI_LOCALIZATION_MODEL", "gpt-5.6-terra")
+		if cfg.GitRepository == "" || cfg.LocalizationAPIKey == "" {
+			return Config{}, fmt.Errorf("localization requires Git-managed specifications and an OpenAI credential")
+		}
 	}
 	if cfg.GitRepository != "" && (len(cfg.SnapshotImportToken) < 32 || cfg.DeveloperEnabled) {
 		return Config{}, fmt.Errorf("Git-managed workspace requires a separate import token and disabled developer worker")

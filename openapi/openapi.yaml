@@ -446,6 +446,7 @@ components:
       type: object
       required: [mode, pageCount, scenarioCount, stale]
       properties:
+        localizationUpdatedAt: { type: string, format: date-time }
         mode: { type: string, enum: [human_governed, git_managed] }
         repository: { type: string }
         lastCheckedAt: { type: string, format: date-time }
@@ -518,10 +519,25 @@ components:
         email: { type: string, format: email }
         displayName: { type: string }
         createdAt: { type: string, format: date-time }
+    LocalizedContent:
+      type: object
+      required: [revisionId, sourceHash, version, title, bodyMd, stepTexts]
+      properties:
+        revisionId: { type: string, format: uuid }
+        sourceHash: { type: string }
+        version: { type: integer, minimum: 1 }
+        title: { type: string }
+        bodyMd: { type: string }
+        stepTexts: { type: array, items: { type: string } }
+    Localizations:
+      type: object
+      properties:
+        sk: { $ref: "#/components/schemas/LocalizedContent" }
     Page:
       type: object
       required: [id, kind, slug, title, approved, hasDraft, unresolvedObjections, createdAt, updatedAt]
       properties:
+        localizations: { $ref: "#/components/schemas/Localizations" }
         repositoryRevisionId: { type: string, format: uuid }
         repositorySource: { $ref: "#/components/schemas/RepositorySource" }
         archived: { type: boolean }
@@ -583,6 +599,7 @@ components:
         - type: object
           required: [id, pageId, number, status, createdBy, createdAt]
           properties:
+            localizations: { $ref: "#/components/schemas/Localizations" }
             repositorySource: { $ref: "#/components/schemas/RepositorySource" }
             id: { type: string, format: uuid }
             pageId: { type: string, format: uuid }
@@ -596,6 +613,7 @@ components:
       type: object
       required: [id, number, status, title, createdBy, createdAt]
       properties:
+        localizations: { $ref: "#/components/schemas/Localizations" }
         id: { type: string, format: uuid }
         number: { type: integer }
         status: { $ref: "#/components/schemas/RevisionStatus" }
@@ -680,6 +698,7 @@ components:
       type: object
       required: [revisionId, pageId, pageTitle, draft]
       properties:
+        localizedTitles: { type: object, additionalProperties: { type: string } }
         revisionId: { type: string, format: uuid }
         pageId: { type: string, format: uuid }
         pageTitle: { type: string }
@@ -759,6 +778,7 @@ components:
       type: object
       required: [content, mode]
       properties:
+        locale: { type: string, enum: [sk, en] }
         content: { type: string, minLength: 1, maxLength: 12000 }
         mode: { $ref: "#/components/schemas/AssistantMode" }
       additionalProperties: false

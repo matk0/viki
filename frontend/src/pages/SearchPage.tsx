@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Search } from 'lucide-react'
 import { api } from '../api/client'
+import { localizedResult } from '../localization'
 import type { PageKind, SearchResult } from '../api/types'
 import { Link, useRouter } from '../router'
 import { PageIcon } from '../components/PageIcon'
@@ -23,6 +24,7 @@ export function SearchPage() {
     finally { setLoading(false) }
   }
   useEffect(() => { if (query || includeDrafts) void run(query) }, []) // Initial URL state only.
+  const displayedResults = results.map((result) => localizedResult(result, locale))
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const params = new URLSearchParams({ q: query, includeDrafts: String(includeDrafts) })
@@ -38,6 +40,6 @@ export function SearchPage() {
       <label className="checkbox-label"><input type="checkbox" checked={includeDrafts} onChange={(event) => setIncludeDrafts(event.target.checked)} />{t('search.includeDrafts')}</label>
       <button className="primary-button">{t('search.submit')}</button>
     </form>
-    {loading ? <Spinner label={t('search.searching')} /> : searched && results.length === 0 ? <EmptyState icon={<Search />} title={t('search.noResults')} body={t('search.noResultsBody')} /> : <div className="search-results">{results.map((result) => <Link to={`/page/${result.page.id}`} className="search-result" key={`${result.revisionId}-${result.page.id}`}><span className={`page-icon-box ${result.page.kind}`}><PageIcon page={result.page} /></span><span className="search-result-copy"><span><strong>{result.page.title}</strong><small>{kindLabel(result.page, locale)}</small>{result.draft && <StatusBadge status="draft" />}</span><p>{result.excerpt || t('search.noPreview')}</p></span></Link>)}</div>}
+    {loading ? <Spinner label={t('search.searching')} /> : searched && results.length === 0 ? <EmptyState icon={<Search />} title={t('search.noResults')} body={t('search.noResultsBody')} /> : <div className="search-results">{displayedResults.map((result) => <Link to={`/page/${result.page.id}`} className="search-result" key={`${result.revisionId}-${result.page.id}`}><span className={`page-icon-box ${result.page.kind}`}><PageIcon page={result.page} /></span><span className="search-result-copy"><span><strong>{result.page.title}</strong><small>{kindLabel(result.page, locale)}</small>{result.draft && <StatusBadge status="draft" />}</span><p>{result.excerpt || t('search.noPreview')}</p></span></Link>)}</div>}
   </div>
 }

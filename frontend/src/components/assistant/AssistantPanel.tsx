@@ -147,10 +147,13 @@ function Message({ message }: { message: AssistantMessage }) {
 }
 
 function CitationList({ citations }: { citations: Citation[] }) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
+  const { pages } = useWorkspace()
   return <div className="citation-list">{citations.map((citation, index) => {
+    const page = pages.find((page) => page.repositoryRevisionId === citation.revisionId)
+    const title = locale === 'sk' ? citation.localizedTitles?.sk ?? page?.title ?? citation.pageTitle : citation.pageTitle
     const revisionLabel = t('assistant.revision', { id: citation.revisionId.slice(0, 8) })
-    return <span className="citation-link" title={t('assistant.exactRevision', { id: citation.revisionId })} key={citation.revisionId}><Link to={`/page/${citation.pageId}?revision=${encodeURIComponent(citation.revisionId)}`}><span>{index + 1}</span><strong>{citation.pageTitle}</strong><small>{revisionLabel}</small>{citation.draft && <em>{t('status.draft')}</em>}</Link></span>
+    return <span className="citation-link" title={t('assistant.exactRevision', { id: citation.revisionId })} key={citation.revisionId}><Link to={`/page/${citation.pageId}?revision=${encodeURIComponent(citation.revisionId)}`}><span>{index + 1}</span><strong>{title}</strong><small>{revisionLabel}</small>{citation.draft && <em>{t('status.draft')}</em>}</Link></span>
   })}</div>
 }
 

@@ -33,7 +33,7 @@ vi.mock('../../api/client', () => ({
 }))
 
 vi.mock('../../workspace', () => ({
-  useWorkspace: () => ({ reloadPages: mocks.reloadPages, readOnly: mocks.readOnly }),
+  useWorkspace: () => ({ reloadPages: mocks.reloadPages, readOnly: mocks.readOnly, pages: [{ repositoryRevisionId: 'revision-approved-4', title: 'Zmluva pre domácnosť' }] }),
 }))
 
 const status: AssistantStatus = {
@@ -507,6 +507,7 @@ describe('AssistantPanel', () => {
       </Router>,
     )
     await screen.findByText('Zmluva vyžaduje identifikačné údaje.')
+    await waitFor(() => expect(mocks.openAssistantEventStream).toHaveBeenCalledWith('conversation-1', expect.any(Function), expect.any(Function)))
     act(() => emit({ id: '31', type: 'clarification', data: {
       turnId: 'turn-qa',
       mode: 'qa',
@@ -514,7 +515,7 @@ describe('AssistantPanel', () => {
       message: 'Ktorú oblasť máte na mysli?',
       choices: ['Zmluvy'],
     } }))
-    await user.click(screen.getByRole('button', { name: 'Zmluvy' }))
+    await user.click(await screen.findByRole('button', { name: 'Zmluvy' }))
     await user.click(screen.getByRole('button', { name: 'Pokračovať' }))
 
     expect(screen.getByLabelText('Režim aktivity')).toHaveTextContent('qa')

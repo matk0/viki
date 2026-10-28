@@ -731,6 +731,8 @@ func TestSubmitAssistantMessageValidatesBodyModeAndCommands(t *testing.T) {
 		{`{"content":"question","mode":"qa"}`, false, http.StatusBadRequest},
 		{`{`, true, http.StatusBadRequest},
 		{`{"content":"   ","mode":"qa"}`, true, http.StatusUnprocessableEntity},
+		{`{"content":"question","mode":"qa","locale":"fr"}`, true, http.StatusUnprocessableEntity},
+		{`{"content":"question","mode":"qa","locale":"en"}`, true, http.StatusServiceUnavailable},
 		{`{"content":"` + strings.Repeat("x", 12001) + `","mode":"qa"}`, true, http.StatusUnprocessableEntity},
 		{`{"content":"question","mode":"other"}`, true, http.StatusUnprocessableEntity},
 		{`{"content":"/model unsafe","mode":"qa"}`, true, http.StatusUnprocessableEntity},

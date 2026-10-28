@@ -637,6 +637,16 @@ class VikiPluginTest(unittest.TestCase):
         }})
         self.assertEqual(result, {"citations": [{"revisionId": "repo-revision", "pageId": "repo-page", "pageTitle": "English business rule", "draft": False}], "drafts": []})
 
+    def test_localized_citation_titles_preserve_canonical_revision(self):
+        base = {"id": "revision-1", "pageId": "page-1", "title": "Consent"}
+        for malformed in [None, [], {"sk": None}, {"sk": {"title": False}}, {"sk": {"title": ""}}]:
+            receipt = history_projection._receipt({**base, "localizations": malformed})
+            self.assertNotIn("localizedTitles", receipt)
+        receipt = history_projection._receipt({**base, "localizations": {"sk": {"title": "Súhlas"}}})
+        self.assertEqual(receipt["localizedTitles"], {"sk": "Súhlas"})
+        self.assertEqual(receipt["revisionId"], "revision-1")
+        self.assertEqual(receipt["pageTitle"], "Consent")
+
     def test_history_projection_installation_fails_closed(self):
         missing_gateway = ModuleNotFoundError("missing", name="tui_gateway")
         with patch.object(

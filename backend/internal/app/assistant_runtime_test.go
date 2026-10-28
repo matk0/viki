@@ -722,14 +722,14 @@ func TestSubmitAndEnsureSessionCoverLifecycleAndPersistenceFailures(t *testing.T
 	repository := &runtimeTestRepository{}
 	gateway := hermes.NewFakeGateway()
 	runtime := bareAssistantRuntime(repository, gateway)
-	turn, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka")
+	turn, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka", "")
 	if err != nil || turn.RuntimeID == "" || turn.StoredID == "" || runtime.conversationState[conversation.ID] != model.AssistantStateRunning {
 		t.Fatalf("successful submit turn=%+v state=%s err=%v", turn, runtime.conversationState[conversation.ID], err)
 	}
 	if len(runtimeReplay(runtime, conversation.ID)) != 1 || len(repository.modeUpdates) != 1 {
 		t.Fatal("successful submit did not publish activity and persist mode")
 	}
-	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Druhá"); !errors.Is(err, errAssistantTurnActive) {
+	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Druhá", ""); !errors.Is(err, errAssistantTurnActive) {
 		t.Fatalf("active submit error=%v", err)
 	}
 
@@ -757,19 +757,19 @@ func TestSubmitAndEnsureSessionCoverLifecycleAndPersistenceFailures(t *testing.T
 	offline := hermes.NewFakeGateway()
 	offline.Online = false
 	runtime = bareAssistantRuntime(&runtimeTestRepository{}, offline)
-	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka"); !errors.Is(err, hermes.ErrUnavailable) {
+	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka", ""); !errors.Is(err, hermes.ErrUnavailable) {
 		t.Fatalf("offline submit error=%v", err)
 	}
 
 	submitFailure := &submitErrorGateway{FakeGateway: hermes.NewFakeGateway(), err: errors.New("submit failed")}
 	runtime = bareAssistantRuntime(&runtimeTestRepository{}, submitFailure)
-	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka"); err == nil || err.Error() != "submit failed" {
+	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka", ""); err == nil || err.Error() != "submit failed" {
 		t.Fatalf("gateway submit error=%v", err)
 	}
 
 	repository = &runtimeTestRepository{modeErr: errors.New("mode failed")}
 	runtime = bareAssistantRuntime(repository, hermes.NewFakeGateway())
-	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka"); err == nil || err.Error() != "mode failed" {
+	if _, err := runtime.submit(context.Background(), conversation, model.AssistantQA, "Otázka", ""); err == nil || err.Error() != "mode failed" {
 		t.Fatalf("mode persistence error=%v", err)
 	}
 
@@ -781,13 +781,13 @@ func TestSubmitAndEnsureSessionCoverLifecycleAndPersistenceFailures(t *testing.T
 	gateway.Sessions[model.AssistantQA][qaStored] = []hermes.HistoryMessage{{Role: "user", Text: "Predošlá otázka"}}
 	repository = &runtimeTestRepository{cursorErr: errors.New("cursor failed")}
 	runtime = bareAssistantRuntime(repository, gateway)
-	if _, err := runtime.submit(context.Background(), handoffConversation, model.AssistantEdit, "Uprav"); err != nil || len(repository.cursorUpdates) != 1 {
+	if _, err := runtime.submit(context.Background(), handoffConversation, model.AssistantEdit, "Uprav", ""); err != nil || len(repository.cursorUpdates) != 1 {
 		t.Fatalf("handoff cursor warning submit err=%v cursors=%v", err, repository.cursorUpdates)
 	}
 
 	historyFailure := &historyErrorGateway{FakeGateway: gateway, err: errors.New("history failed")}
 	runtime = bareAssistantRuntime(&runtimeTestRepository{}, historyFailure)
-	if _, err := runtime.submit(context.Background(), handoffConversation, model.AssistantEdit, "Uprav"); err == nil || err.Error() != "history failed" {
+	if _, err := runtime.submit(context.Background(), handoffConversation, model.AssistantEdit, "Uprav", ""); err == nil || err.Error() != "history failed" {
 		t.Fatalf("handoff failure submit error=%v", err)
 	}
 }
@@ -1109,5 +1109,43 @@ func TestVisibleHistoryCoversIgnoredToolsReceiptsEmptyMessagesAndNumbering(t *te
 	}
 	if got := truncateUTF8("žltá", 1); got != "" {
 		t.Fatalf("continuation truncation=%q", got)
+	}
+}
+
+func TestLocaleIsSignedAndCitationTitlesSurviveBothToolShapes(t *testing.T) {
+	runtime := newAssistantRuntime(context.Background(), &runtimeTestRepository{}, hermes.NewFakeGateway(), "key", discardLogger())
+	for _, locale := range []string{"sk", "en"} {
+		prompt := runtime.wrapPrompt(&assistantTurn{ID: "locale", Mode: model.AssistantQA, Locale: locale}, "Question", "", time.Now())
+		meta, _, ok := runtime.unwrapPrompt(prompt)
+		if !ok || meta.ResponseLocale != locale {
+			t.Fatal(meta)
+		}
+		if _, _, ok = runtime.unwrapPrompt(strings.Replace(prompt, `"responseLocale":"`+locale+`"`, `"responseLocale":"other"`, 1)); ok {
+			t.Fatal("locale tampering accepted")
+		}
+	}
+	for _, raw := range []string{`{"revisionId":"r","pageId":"p","localizations":{"sk":{"title":"Súhlas"}}}`, `{"revisionId":"r","pageId":"p","localizedTitles":{"sk":"Súhlas"}}`} {
+		citations := extractCitations(json.RawMessage(raw))
+		if len(citations) != 1 || citations[0].LocalizedTitles["sk"] != "Súhlas" {
+			t.Fatal(citations)
+		}
+	}
+	for _, raw := range []string{`{"localizedTitles":{"sk":false}}`, `{"localizedTitles":{"sk":""}}`, `{"localizations":{"sk":false}}`, `{"localizations":{"sk":{"title":false}}}`, `{"localizations":{"sk":{"title":""}}}`} {
+		var value map[string]any
+		_ = json.Unmarshal([]byte(raw), &value)
+		if localizedCitationTitles(value) != nil {
+			t.Fatal(raw)
+		}
+	}
+}
+func TestApplicationStopsBackgroundLocalizationBeforeClosing(t *testing.T) {
+	started, stopped := make(chan struct{}), make(chan struct{})
+	application := NewApplication(&runtimeTestRepository{}, nil, Options{Localize: func(ctx context.Context) { close(started); <-ctx.Done(); close(stopped) }}, discardLogger())
+	<-started
+	application.Close()
+	select {
+	case <-stopped:
+	default:
+		t.Fatal("worker not stopped")
 	}
 }

@@ -151,6 +151,7 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("VIKI_SNAPSHOT_IMPORT_TOKEN", "")
 	t.Helper()
 	for _, name := range []string{
+		"VIKI_LOCALIZATION_ENABLED", "VIKI_LOCALIZATION_MODEL", "OPENAI_API_KEY",
 		"VIKI_ADDRESS",
 		"VIKI_INTERNAL_ADDRESS",
 		"DATABASE_URL",
@@ -188,5 +189,24 @@ func TestGitWorkspaceRequiresSeparateImportCredentialAndDisabledDeveloper(t *tes
 	t.Setenv("VIKI_DEVELOPER_ENABLED", "true")
 	if _, err = config.Load(); err == nil {
 		t.Fatal("Git-managed developer worker accepted")
+	}
+}
+
+func TestLocalizationRequiresExplicitGitSourceAndCredential(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("INITIAL_USER_PASSWORD", "test")
+	t.Setenv("VIKI_LOCALIZATION_ENABLED", "true")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("localization enabled without source/key")
+	}
+	t.Setenv("VIKI_GIT_REPOSITORY", "https://github.com/matk0/vozokany")
+	t.Setenv("VIKI_SNAPSHOT_IMPORT_TOKEN", "12345678901234567890123456789012")
+	if _, err := config.Load(); err == nil {
+		t.Fatal("missing provider credential")
+	}
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	cfg, err := config.Load()
+	if err != nil || cfg.LocalizationAPIKey != "test-key" || cfg.LocalizationModel != "gpt-5.6-terra" {
+		t.Fatal(cfg, err)
 	}
 }

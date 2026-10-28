@@ -55,7 +55,7 @@ describe('assistant API client', () => {
       '/api/v1/assistant/conversations/conversation-1/clarifications/request-1',
     ])
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ primaryMode: 'edit' }) })
-    expect(fetchMock.mock.calls[3][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ content: 'Vytvor koncept.', mode: 'edit' }) })
+    expect(fetchMock.mock.calls[3][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ content: 'Vytvor koncept.', mode: 'edit', locale: 'sk' }) })
     expect(fetchMock.mock.calls[5][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ answer: 'Pre domácnosť.' }) })
   })
 
@@ -253,4 +253,15 @@ it('loads the authenticated authority and sync status contract', async () => {
  await expect(api.workspaceSyncStatus()).resolves.toMatchObject({mode:'git_managed'})
  expect(fetchMock).toHaveBeenCalledWith('/api/v1/workspace/sync',expect.objectContaining({credentials:'same-origin'}))
  vi.unstubAllGlobals()
+})
+
+it('sends the selected English locale with a new Q&A turn', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ turnId: 'turn', mode: 'qa' }), { status: 202 }))
+  vi.stubGlobal('fetch', fetchMock)
+  const previous = document.documentElement.lang
+  document.documentElement.lang = 'en'
+  await api.sendAssistantMessage('conversation', 'Question', 'qa')
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ content: 'Question', mode: 'qa', locale: 'en' })
+  document.documentElement.lang = previous
+  vi.unstubAllGlobals()
 })

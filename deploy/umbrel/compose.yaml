@@ -53,6 +53,9 @@ services:
       DATABASE_URL: postgres://viki_vozokany:${POSTGRES_PASSWORD:?Set a unique database password}@database:5432/viki_vozokany?sslmode=disable
       INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:?Set a unique login password}
       FRONTEND_DIR: /app/public
+      VIKI_LOCALIZATION_ENABLED: "true"
+      VIKI_LOCALIZATION_MODEL: gpt-5.6-terra
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Existing Viki provider key required}
       COOKIE_SECURE: "true"
       VIKI_INTERNAL_ADDRESS: 0.0.0.0:8090
       VIKI_HERMES_TOOL_TOKEN: ${VIKI_HERMES_TOOL_TOKEN:?Set unique token}

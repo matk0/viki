@@ -173,9 +173,14 @@ func (s *Server) submitAssistantMessage(w http.ResponseWriter, request *http.Req
 	}
 	var input struct {
 		Content string              `json:"content"`
+		Locale  string              `json:"locale"`
 		Mode    model.AssistantMode `json:"mode"`
 	}
 	if !decodeJSON(w, request, &input) {
+		return
+	}
+	if input.Locale != "" && input.Locale != "sk" && input.Locale != "en" {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_locale", "Jazyk nie je podporovaný.")
 		return
 	}
 	input.Content = strings.TrimSpace(input.Content)
@@ -190,7 +195,7 @@ func (s *Server) submitAssistantMessage(w http.ResponseWriter, request *http.Req
 	if !s.permitAssistantMode(w, request, auth, input.Mode) {
 		return
 	}
-	turn, err := s.assistant.submit(request.Context(), conversation, input.Mode, input.Content)
+	turn, err := s.assistant.submit(request.Context(), conversation, input.Mode, input.Content, input.Locale)
 	if err != nil {
 		s.handleAssistantError(w, err)
 		return

@@ -62,12 +62,18 @@ def _receipt(candidate):
     draft = candidate.get("draft")
     if not isinstance(draft, bool):
         draft = candidate.get("status") == "draft"
-    return {
+    receipt = {
         "revisionId": revision_id,
         "pageId": page_id,
         "pageTitle": page_title,
         "draft": draft,
     }
+    localizations = candidate.get("localizations")
+    if isinstance(localizations, dict):
+        slovak = localizations.get("sk")
+        if isinstance(slovak, dict) and isinstance(slovak.get("title"), str) and slovak["title"]:
+            receipt["localizedTitles"] = {"sk": slovak["title"]}
+    return receipt
 
 
 def _safe_result(name, content):

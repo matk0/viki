@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, BookOpen, ChevronDown, Pencil, Plus } from 'lucide-react'
 import { api } from '../api/client'
+import { localizedDetail, localizedRevision, translationPending } from '../localization'
 import type { Page, PageDetail, Revision } from '../api/types'
 import { Link, useRouter } from '../router'
 import { useWorkspace } from '../workspace'
@@ -16,9 +17,11 @@ export function PagePage({ pageId }: { pageId: string }) {
   const { locale, t } = useI18n()
   const { search } = useRouter()
   const requestedRevisionId = search.get('revision')
-  const [detail, setDetail] = useState<PageDetail | null>(null)
+  const [sourceDetail, setDetail] = useState<PageDetail | null>(null)
+  const detail = useMemo(() => sourceDetail ? localizedDetail(sourceDetail, locale) : null, [sourceDetail, locale])
   const [repositoryRevision, setRepositoryRevision] = useState<Revision>()
   const loadSequence = useRef(0)
+  const loadedIdentity = useRef<{ pageId: string; revisionId: string | null } | null>(null)
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(false)
   const [history, setHistory] = useState(false)
@@ -44,11 +47,14 @@ export function PagePage({ pageId }: { pageId: string }) {
     }
   }
   useEffect(() => {
-    setDetail(null); setRepositoryRevision(undefined); setEditing(false); setHistory(false); setRelatedOpen(false); setVersion('approved'); setError('')
+    if (loadedIdentity.current?.pageId !== pageId || loadedIdentity.current.revisionId !== requestedRevisionId) {
+      setDetail(null); setRepositoryRevision(undefined); setEditing(false); setHistory(false); setRelatedOpen(false); setVersion('approved'); setError('')
+    }
+    loadedIdentity.current = { pageId, revisionId: requestedRevisionId }
     void load()
     return () => { loadSequence.current++ }
-  }, [pageId, requestedRevisionId, syncStatus?.commit, syncStatus?.runId, syncStatus?.runAttempt])
-  const revision = useMemo<Revision | undefined>(() => detail?.page.repositoryRevisionId ? repositoryRevision : version === 'draft' ? detail?.draftRevision : detail?.approvedRevision, [detail, repositoryRevision, version])
+  }, [pageId, requestedRevisionId, syncStatus?.commit, syncStatus?.runId, syncStatus?.runAttempt, syncStatus?.localizationUpdatedAt])
+  const revision = useMemo<Revision | undefined>(() => detail?.page.repositoryRevisionId ? repositoryRevision && localizedRevision(repositoryRevision, locale) : version === 'draft' ? detail?.draftRevision : detail?.approvedRevision, [detail, repositoryRevision, version, locale])
   const editableRevision = version === 'draft' ? detail?.draftRevision : detail?.draftRevision ? undefined : detail?.approvedRevision
   const changed = async () => { await load(); await reloadPages(); setEditing(false) }
   const saved = async () => { await changed(); setVersion('draft') }
@@ -63,7 +69,8 @@ export function PagePage({ pageId }: { pageId: string }) {
       {revision ? <>
         <header className="document-header"><div className="document-header-actions"><button className="secondary-button document-header-button" onClick={() => setHistory(true)}>{t('page.history')}</button>{!editing && <button className="secondary-button document-header-button document-edit-button" disabled={!canEdit || (version === 'approved' && Boolean(detail.draftRevision))} onClick={() => setEditing(true)}>{version === 'draft' ? <Pencil size={15} /> : <Plus size={15} />}{version === 'draft' ? t('page.editDraft') : t('page.newVersion')}</button>}</div><div className="document-title-row"><div className="document-title-main"><h1>{revision.title}</h1></div><div className={`document-icon ${detail.page.kind} ${revision.status}`} role="img" aria-label={`${kindLabel(detail.page, locale)} · ${statusLabel(revision.status, t)}`}><PageIcon page={detail.page} size={25} /></div></div><p className="revision-meta">{detail.page.repositoryRevisionId ? `${t('history.revision', { number: revision.number })} · ${formatDate(revision.createdAt, true, locale)}` : t('page.revisionMeta', { number: revision.number, author: revision.createdBy.displayName, date: formatDate(revision.createdAt, true, locale) })}</p>{detail.page.archived && <p className="revision-meta" role="status">{t('page.archived')}</p>}</header>
         {editing && editableRevision && canEdit ? <PageEditor page={detail.page} revision={editableRevision} onCancel={() => setEditing(false)} onSaved={saved} /> : <>
-          <section className="document-body"><Markdown inlineLinks={conceptInlineLinks(revision, pages)}>{revisionBody(revision) || t('page.emptyDescription')}</Markdown>{detail.page.kind === 'scenario' && <BDDSteps steps={revision.steps} />}</section>
+          {translationPending(revision, locale) && <p className="revision-meta" role="status">{t('page.translationPending')}</p>}
+          <section className="document-body" lang={translationPending(revision, locale) ? 'en' : locale}><Markdown inlineLinks={conceptInlineLinks(revision, pages)}>{revisionBody(revision) || t('page.emptyDescription')}</Markdown>{detail.page.kind === 'scenario' && <BDDSteps steps={revision.steps} />}</section>
           {detail.page.kind === 'feature' && <section className="document-section"><div className="document-section-heading"><h2>{t('page.scenarios')}</h2><button className="secondary-button" disabled={!canEdit} onClick={() => openNewPage('scenario', detail.page.id)}><Plus size={14} />{t('page.addScenario')}</button></div>{detail.children.length > 0 ? <div className="child-list">{detail.children.map((child, index) => <Link to={`/page/${child.id}`} key={child.id}><span>{index + 1}</span><PageIcon page={child} /><strong>{child.title}</strong><StatusBadge page={child} /></Link>)}</div> : <p className="muted">{t('page.noScenarios')}</p>}</section>}
           {revision.references.length > 0 && <section className="document-section document-accordion"><h2><button type="button" className="document-accordion-toggle" aria-expanded={relatedOpen} aria-controls={`related-pages-${revision.id}`} onClick={() => setRelatedOpen((open) => !open)}><span>{t('page.related')}</span><ChevronDown size={17} /></button></h2><div id={`related-pages-${revision.id}`} className="reference-list document-accordion-content" hidden={!relatedOpen}>{revision.references.map((reference) => {
             const targetPage = pages.find((page) => page.id === reference.targetPageId)
@@ -76,7 +83,7 @@ export function PagePage({ pageId }: { pageId: string }) {
       {revision && <ReviewPanel detail={detail} revision={revision} onChanged={changed} onCreateVersion={version === 'approved' && !detail.draftRevision ? () => setEditing(true) : undefined} />}
       {revision && <div className="panel discussion-panel"><DiscussionPanel detail={detail} revision={revision} onChanged={changed} /></div>}
     </aside>}
-    {history && <RevisionHistory detail={detail} onClose={() => setHistory(false)} />}
+    {history && <RevisionHistory detail={sourceDetail!} onClose={() => setHistory(false)} />}
   </div>
 }
 

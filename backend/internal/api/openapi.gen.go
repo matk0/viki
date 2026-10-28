@@ -104,6 +104,12 @@ const (
 	Outcome StepRole = "outcome"
 )
 
+// Defines values for SubmitAssistantMessageRequestLocale.
+const (
+	En SubmitAssistantMessageRequestLocale = "en"
+	Sk SubmitAssistantMessageRequestLocale = "sk"
+)
+
 // Defines values for WorkspaceSyncStatusMode.
 const (
 	GitManaged    WorkspaceSyncStatusMode = "git_managed"
@@ -232,10 +238,11 @@ type BDDStep struct {
 
 // Citation defines model for Citation.
 type Citation struct {
-	Draft      bool               `json:"draft"`
-	PageId     openapi_types.UUID `json:"pageId"`
-	PageTitle  string             `json:"pageTitle"`
-	RevisionId openapi_types.UUID `json:"revisionId"`
+	Draft           bool               `json:"draft"`
+	LocalizedTitles *map[string]string `json:"localizedTitles,omitempty"`
+	PageId          openapi_types.UUID `json:"pageId"`
+	PageTitle       string             `json:"pageTitle"`
+	RevisionId      openapi_types.UUID `json:"revisionId"`
 }
 
 // Comment defines model for Comment.
@@ -294,6 +301,21 @@ type InitialScenarioRequest struct {
 	Slug    string          `json:"slug"`
 }
 
+// Localizations defines model for Localizations.
+type Localizations struct {
+	Sk *LocalizedContent `json:"sk,omitempty"`
+}
+
+// LocalizedContent defines model for LocalizedContent.
+type LocalizedContent struct {
+	BodyMd     string             `json:"bodyMd"`
+	RevisionId openapi_types.UUID `json:"revisionId"`
+	SourceHash string             `json:"sourceHash"`
+	StepTexts  []string           `json:"stepTexts"`
+	Title      string             `json:"title"`
+	Version    int                `json:"version"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	Email    openapi_types.Email `json:"email"`
@@ -337,6 +359,7 @@ type Page struct {
 	Id                    openapi_types.UUID  `json:"id"`
 	Kind                  PageKind            `json:"kind"`
 	LatestDraftRevisionId *openapi_types.UUID `json:"latestDraftRevisionId,omitempty"`
+	Localizations         *Localizations      `json:"localizations,omitempty"`
 	ParentId              *openapi_types.UUID `json:"parentId,omitempty"`
 	RepositoryRevisionId  *openapi_types.UUID `json:"repositoryRevisionId,omitempty"`
 	RepositorySource      *RepositorySource   `json:"repositorySource,omitempty"`
@@ -418,6 +441,7 @@ type Revision struct {
 	CreatedAt        time.Time           `json:"createdAt"`
 	CreatedBy        User                `json:"createdBy"`
 	Id               openapi_types.UUID  `json:"id"`
+	Localizations    *Localizations      `json:"localizations,omitempty"`
 	Number           int                 `json:"number"`
 	PageId           openapi_types.UUID  `json:"pageId"`
 	References       []PageReference     `json:"references"`
@@ -447,13 +471,14 @@ type RevisionStatus string
 
 // RevisionSummary defines model for RevisionSummary.
 type RevisionSummary struct {
-	ApprovedAt *time.Time         `json:"approvedAt,omitempty"`
-	CreatedAt  time.Time          `json:"createdAt"`
-	CreatedBy  User               `json:"createdBy"`
-	Id         openapi_types.UUID `json:"id"`
-	Number     int                `json:"number"`
-	Status     RevisionStatus     `json:"status"`
-	Title      string             `json:"title"`
+	ApprovedAt    *time.Time         `json:"approvedAt,omitempty"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	CreatedBy     User               `json:"createdBy"`
+	Id            openapi_types.UUID `json:"id"`
+	Localizations *Localizations     `json:"localizations,omitempty"`
+	Number        int                `json:"number"`
+	Status        RevisionStatus     `json:"status"`
+	Title         string             `json:"title"`
 }
 
 // SaveRevisionRequest defines model for SaveRevisionRequest.
@@ -493,9 +518,13 @@ type StepRole string
 
 // SubmitAssistantMessageRequest defines model for SubmitAssistantMessageRequest.
 type SubmitAssistantMessageRequest struct {
-	Content string        `json:"content"`
-	Mode    AssistantMode `json:"mode"`
+	Content string                               `json:"content"`
+	Locale  *SubmitAssistantMessageRequestLocale `json:"locale,omitempty"`
+	Mode    AssistantMode                        `json:"mode"`
 }
+
+// SubmitAssistantMessageRequestLocale defines model for SubmitAssistantMessageRequest.Locale.
+type SubmitAssistantMessageRequestLocale string
 
 // UpdateAssistantConversationSettingsRequest defines model for UpdateAssistantConversationSettingsRequest.
 type UpdateAssistantConversationSettingsRequest struct {
@@ -512,19 +541,20 @@ type User struct {
 
 // WorkspaceSyncStatus defines model for WorkspaceSyncStatus.
 type WorkspaceSyncStatus struct {
-	Commit         *string                 `json:"commit,omitempty"`
-	ContentHash    *string                 `json:"contentHash,omitempty"`
-	LastCheckedAt  *time.Time              `json:"lastCheckedAt,omitempty"`
-	LastError      *string                 `json:"lastError,omitempty"`
-	LastErrorAt    *time.Time              `json:"lastErrorAt,omitempty"`
-	LastImportedAt *time.Time              `json:"lastImportedAt,omitempty"`
-	Mode           WorkspaceSyncStatusMode `json:"mode"`
-	PageCount      int                     `json:"pageCount"`
-	Repository     *string                 `json:"repository,omitempty"`
-	RunAttempt     *int                    `json:"runAttempt,omitempty"`
-	RunId          *string                 `json:"runId,omitempty"`
-	ScenarioCount  int                     `json:"scenarioCount"`
-	Stale          bool                    `json:"stale"`
+	Commit                *string                 `json:"commit,omitempty"`
+	ContentHash           *string                 `json:"contentHash,omitempty"`
+	LastCheckedAt         *time.Time              `json:"lastCheckedAt,omitempty"`
+	LastError             *string                 `json:"lastError,omitempty"`
+	LastErrorAt           *time.Time              `json:"lastErrorAt,omitempty"`
+	LastImportedAt        *time.Time              `json:"lastImportedAt,omitempty"`
+	LocalizationUpdatedAt *time.Time              `json:"localizationUpdatedAt,omitempty"`
+	Mode                  WorkspaceSyncStatusMode `json:"mode"`
+	PageCount             int                     `json:"pageCount"`
+	Repository            *string                 `json:"repository,omitempty"`
+	RunAttempt            *int                    `json:"runAttempt,omitempty"`
+	RunId                 *string                 `json:"runId,omitempty"`
+	ScenarioCount         int                     `json:"scenarioCount"`
+	Stale                 bool                    `json:"stale"`
 }
 
 // WorkspaceSyncStatusMode defines model for WorkspaceSyncStatus.Mode.

@@ -140,7 +140,7 @@ export const api = {
   }),
   assistantConversation: (id: string) => request<AssistantConversation>(`/api/v1/assistant/conversations/${id}`),
   sendAssistantMessage: (id: string, content: string, mode: AssistantMode) => request<AssistantCommandAccepted>(`/api/v1/assistant/conversations/${id}/messages`, {
-    method: 'POST', body: JSON.stringify({ content, mode }),
+    method: 'POST', body: JSON.stringify({ content, mode, locale: document.documentElement.lang === 'en' ? 'en' : 'sk' }),
   }),
   stopAssistantConversation: (id: string) => request<void>(`/api/v1/assistant/conversations/${id}/stop`, {
     method: 'POST',

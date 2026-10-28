@@ -15,6 +15,7 @@ import (
 	"viki/internal/app"
 	"viki/internal/config"
 	"viki/internal/hermes"
+	"viki/internal/localize"
 	"viki/internal/postgres"
 	"viki/internal/store"
 )
@@ -116,7 +117,14 @@ func newRuntimeGateway(ctx context.Context, managerConfig hermes.ManagerConfig) 
 }
 
 func newRuntimeApplication(database runtimeDatabase, gateway runtimeGateway, cfg config.Config, logger *slog.Logger) runtimeApplication {
+	var backgroundLocalization func(context.Context)
+	if cfg.LocalizationAPIKey != "" {
+		localizationStore := database.repository.(localize.Store)
+		provider := localize.NewProvider(cfg.LocalizationAPIKey, cfg.LocalizationModel)
+		backgroundLocalization = func(ctx context.Context) { localize.Run(ctx, localizationStore, provider, logger) }
+	}
 	application := app.NewApplication(database.repository, gateway.gateway, app.Options{
+		Localize:               backgroundLocalization,
 		CookieSecure:           cfg.CookieSecure,
 		SnapshotImportToken:    cfg.SnapshotImportToken,
 		SessionTTL:             cfg.SessionTTL,
