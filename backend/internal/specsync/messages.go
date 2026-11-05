@@ -14,7 +14,7 @@ import (
 )
 
 // ValidateMessages independently binds the retained execution stream to the canonical
-// sources and every passing result (including hooks, real step matches and Rust fixture receipts).
+// sources and every passing result (including hooks and real step matches).
 func ValidateMessages(raw []byte, snapshot Snapshot) error {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
@@ -25,7 +25,6 @@ func ValidateMessages(raw []byte, snapshot Snapshot) error {
 	definitions := map[string]bool{}
 	sources := map[string]string{}
 	events := map[string]map[string]*messages.TestStepResult{}
-	attestations := map[string][]string{}
 	starts, ends := 0, 0
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -93,10 +92,6 @@ func ValidateMessages(raw []byte, snapshot Snapshot) error {
 			if result == nil || result.Status != "PASSED" || result.Exception != nil {
 				return fmt.Errorf("non-passing run hook")
 			}
-		case e.Attachment != nil:
-			if e.Attachment.MediaType == "application/vnd.vozokany.fixture+json" {
-				attestations[e.Attachment.TestCaseStartedId] = append(attestations[e.Attachment.TestCaseStartedId], e.Attachment.Body)
-			}
 		}
 	}
 	if scanner.Err() != nil {
@@ -134,7 +129,7 @@ func ValidateMessages(raw []byte, snapshot Snapshot) error {
 		}
 		ids := []string{}
 		for _, tag := range pickle.Tags {
-			if strings.HasPrefix(tag.Name, "@id:VOZ-SC-") {
+			if strings.HasPrefix(tag.Name, "@id:") && strings.TrimPrefix(tag.Name, "@id:") != featurePaths[pickle.Uri].ID {
 				ids = append(ids, strings.TrimPrefix(tag.Name, "@id:"))
 			}
 		}
@@ -195,16 +190,6 @@ func ValidateMessages(raw []byte, snapshot Snapshot) error {
 			if step.Text != scenario.Steps[i].Text {
 				return fmt.Errorf("executed step order differs")
 			}
-		}
-		receipts := attestations[id]
-		if len(receipts) != 1 {
-			return fmt.Errorf("missing Rust fixture receipt")
-		}
-		var receipt struct {
-			Backend string `json:"backend"`
-		}
-		if json.Unmarshal([]byte(receipts[0]), &receipt) != nil || receipt.Backend != "rust" {
-			return fmt.Errorf("wrong fixture backend")
 		}
 		results = append(results, Result{ScenarioID: scenario.ID, Status: "passed", Duration: duration.String(), Steps: steps})
 	}

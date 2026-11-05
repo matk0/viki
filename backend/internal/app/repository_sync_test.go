@@ -56,7 +56,7 @@ func (r *syncRepository) SetAssistantPrimaryMode(context.Context, string, string
 }
 func newSyncApp(t *testing.T) (*Application, *syncRepository) {
 	t.Helper()
-	r := &syncRepository{assistantToolRepository: &assistantToolRepository{conversation: model.AssistantConversation{ID: syncConversationID, OrganizationID: "workspace-session", UserID: "user", PrimaryMode: model.AssistantQA, LastMode: model.AssistantQA}}, status: model.WorkspaceSyncStatus{Mode: "git_managed", Repository: specsync.Repository}}
+	r := &syncRepository{assistantToolRepository: &assistantToolRepository{conversation: model.AssistantConversation{ID: syncConversationID, OrganizationID: "workspace-session", UserID: "user", PrimaryMode: model.AssistantQA, LastMode: model.AssistantQA}}, status: model.WorkspaceSyncStatus{Mode: "git_managed", Repository: "https://github.com/matk0/vozokany"}}
 	a := NewApplication(r, hermes.NewFakeGateway(), Options{SnapshotImportToken: strings.Repeat("s", 64), HermesToolToken: "separate-hermes-token"}, discardLogger())
 	t.Cleanup(a.Close)
 	return a, r

@@ -9,6 +9,9 @@ import (
 	"testing"
 )
 
+const Repository = "https://github.com/matk0/vozokany"
+const repositoryAPI = "/repos/matk0/vozokany"
+
 func fixture(t *testing.T) Snapshot {
 	t.Helper()
 	b, e := os.ReadFile("testdata/snapshot-v1.valid.json")

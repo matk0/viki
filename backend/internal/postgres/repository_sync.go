@@ -21,7 +21,7 @@ func (r *Repository) ConfigureInitialRepositoryWorkspace(ctx context.Context, re
 }
 
 func (r *Repository) ConfigureRepositoryWorkspace(ctx context.Context, organizationID, repository string) error {
-	if repository != "" && repository != specsync.Repository {
+	if repository != "" && !specsync.ValidRepository(repository) {
 		return fmt.Errorf("unsupported Git repository")
 	}
 	if repository == "" {
@@ -30,7 +30,7 @@ func (r *Repository) ConfigureRepositoryWorkspace(ctx context.Context, organizat
 	// Do not silently hide an existing human-governed catalogue when changing modes.
 	_, err := r.pool.Exec(ctx, `INSERT INTO workspace_repository_sync(organization_id,repository)
  SELECT $1,$2 WHERE NOT EXISTS(SELECT 1 FROM pages WHERE organization_id=$1)
- ON CONFLICT(organization_id) DO UPDATE SET repository=EXCLUDED.repository`, organizationID, repository)
+ ON CONFLICT(organization_id) DO NOTHING`, organizationID, repository)
 	if err != nil {
 		return err
 	}
@@ -38,8 +38,8 @@ func (r *Repository) ConfigureRepositoryWorkspace(ctx context.Context, organizat
 	if err != nil {
 		return err
 	}
-	if status.Mode != "git_managed" {
-		return fmt.Errorf("cannot enable Git mode over existing human-authored pages")
+	if status.Mode != "git_managed" || status.Repository != repository {
+		return fmt.Errorf("cannot replace an existing workspace authority")
 	}
 	return nil
 }
@@ -172,7 +172,7 @@ func (r *Repository) repositoryVersions(ctx context.Context, org, pageID, revisi
 	}
 
 	rows, err := r.pool.Query(ctx, `SELECT r.id::text,r.page_id::text,r.number,r.created_at,
- COALESCE(e.entry,r.entry),s.source_commit,s.run_id::text,s.run_attempt,s.imported_at,
+ COALESCE(e.entry,r.entry),s.source_commit,s.run_id::text,s.run_attempt,s.imported_at,s.snapshot->'source'->>'repository',
  COALESCE((SELECT jsonb_agg(jsonb_build_object('targetPageId',target.id::text,'targetTitle',related.entry->>'title','relation','uses') ORDER BY target.external_id)
  FROM repository_snapshot_entries related JOIN repository_pages target ON target.id=related.page_id
  WHERE related.snapshot_id=s.id AND target.external_id IN(SELECT jsonb_array_elements_text(e.entry->'conceptIds'))),'[]'::jsonb)
@@ -188,8 +188,8 @@ func (r *Repository) repositoryVersions(ctx context.Context, org, pageID, revisi
 		var rev model.Revision
 		var entry specsync.Entry
 		var data, references []byte
-		source := model.RepositorySource{Repository: specsync.Repository, Result: "passed"}
-		if err = rows.Scan(&rev.ID, &rev.PageID, &rev.Number, &rev.CreatedAt, &data, &source.Commit, &source.RunID, &source.RunAttempt, &source.ImportedAt, &references); err != nil {
+		source := model.RepositorySource{Result: "passed"}
+		if err = rows.Scan(&rev.ID, &rev.PageID, &rev.Number, &rev.CreatedAt, &data, &source.Commit, &source.RunID, &source.RunAttempt, &source.ImportedAt, &source.Repository, &references); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(data, &entry); err != nil {
@@ -222,7 +222,7 @@ func (r *Repository) RepositoryPages(ctx context.Context, org string, kind *mode
 		return nil, err
 	}
 
-	rows, err := r.pool.Query(ctx, `SELECT p.id::text,p.kind,p.current_revision_id::text,p.created_at,e.entry,s.source_commit,s.run_id::text,s.run_attempt,s.imported_at
+	rows, err := r.pool.Query(ctx, `SELECT p.id::text,p.kind,p.current_revision_id::text,p.created_at,e.entry,s.source_commit,s.run_id::text,s.run_attempt,s.imported_at,s.snapshot->'source'->>'repository'
  FROM repository_pages p JOIN workspace_repository_sync w ON w.organization_id=p.organization_id JOIN repository_snapshots s ON s.id=w.current_snapshot_id JOIN repository_snapshot_entries e ON e.snapshot_id=s.id AND e.page_id=p.id
  WHERE p.organization_id=$1 AND NOT p.archived ORDER BY p.external_id`, org)
 	if err != nil {
@@ -236,8 +236,8 @@ func (r *Repository) RepositoryPages(ctx context.Context, org string, kind *mode
 		var page model.Page
 		var entry specsync.Entry
 		var data []byte
-		source := model.RepositorySource{Repository: specsync.Repository, Result: "passed"}
-		if err = rows.Scan(&page.ID, &page.Kind, &page.RepositoryRevisionID, &page.CreatedAt, &data, &source.Commit, &source.RunID, &source.RunAttempt, &source.ImportedAt); err != nil {
+		source := model.RepositorySource{Result: "passed"}
+		if err = rows.Scan(&page.ID, &page.Kind, &page.RepositoryRevisionID, &page.CreatedAt, &data, &source.Commit, &source.RunID, &source.RunAttempt, &source.ImportedAt, &source.Repository); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(data, &entry); err != nil {

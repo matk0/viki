@@ -203,7 +203,7 @@ func newPollFixture(t *testing.T) *pollFixture {
 		}
 	}))
 	t.Cleanup(server.Close)
-	f.poller = &Poller{Client: server.Client(), GitHubURL: server.URL, ImportURL: server.URL, GitHubToken: "github-scoped-test", ImportToken: "import-scoped-test", Now: time.Now, RetryDelay: time.Millisecond}
+	f.poller = &Poller{ArtifactPrefix: "vozokany-business-specs-v1", Client: server.Client(), GitHubURL: server.URL, ImportURL: server.URL, GitHubToken: "github-scoped-test", ImportToken: "import-scoped-test", Now: time.Now, RetryDelay: time.Millisecond}
 	return f
 }
 func TestWorkerImportsOnlyEligibleMainArtifactAndRecordsUnchangedPoll(t *testing.T) {
@@ -281,13 +281,6 @@ func TestCucumberStreamExactResultsAndSource(t *testing.T) {
 			for _, v := range e {
 				if p, ok := v["testCaseStarted"].(map[string]any); ok {
 					p["attempt"] = 1
-				}
-			}
-			return e
-		}, "fixture": func(e []map[string]any) []map[string]any {
-			for _, v := range e {
-				if p, ok := v["attachment"].(map[string]any); ok {
-					p["body"] = `{"backend":"node"}`
 				}
 			}
 			return e
@@ -546,7 +539,7 @@ func TestRawMessagesRejectAllIncompleteExecutionForms(t *testing.T) {
 			e["testSteps"] = append(e["testSteps"].([]any), map[string]any{"id": "missing", "hookId": "hook"})
 		}}, "duplicate test step": {"testCase", func(e map[string]any) { steps := e["testSteps"].([]any); steps[1] = steps[0] }}, "result nonexistent": {"testStepFinished", func(e map[string]any) { e["testStepId"] = "missing" }}, "invalid duration": {"testStepFinished", func(e map[string]any) { e["testStepResult"].(map[string]any)["duration"] = nil }}, "ambiguous step": {"testCase", func(e map[string]any) {
 			e["testSteps"].([]any)[1].(map[string]any)["stepDefinitionIds"] = []string{"def0", "def1"}
-		}}, "unknown pickle step": {"testCase", func(e map[string]any) { e["testSteps"].([]any)[1].(map[string]any)["pickleStepId"] = "missing" }}, "unknown executable step": {"testCase", func(e map[string]any) { e["testSteps"].([]any)[0].(map[string]any)["hookId"] = "" }}, "missing Rust receipt": {"attachment", func(e map[string]any) { e["mediaType"] = "text/plain" }}, "invalid Rust receipt": {"attachment", func(e map[string]any) { e["body"] = "not JSON" }},
+		}}, "unknown pickle step": {"testCase", func(e map[string]any) { e["testSteps"].([]any)[1].(map[string]any)["pickleStepId"] = "missing" }}, "unknown executable step": {"testCase", func(e map[string]any) { e["testSteps"].([]any)[0].(map[string]any)["hookId"] = "" }},
 	}
 	for name, m := range mutations {
 		cases[name] = func(events []map[string]any) []map[string]any {

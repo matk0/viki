@@ -9,26 +9,29 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"viki/internal/model"
 )
 
-const repositoryAPI = "/repos/matk0/vozokany"
 const maxArchiveBytes = 16 * 1024 * 1024
 const maxExpandedBytes = 32 * 1024 * 1024
 
 type Poller struct {
-	Client      *http.Client
-	GitHubURL   string
-	ImportURL   string
-	GitHubToken string
-	ImportToken string
-	Now         func() time.Time
-	RetryDelay  time.Duration
+	Workflow       string
+	ArtifactPrefix string
+	Client         *http.Client
+	GitHubURL      string
+	ImportURL      string
+	GitHubToken    string
+	ImportToken    string
+	Now            func() time.Time
+	RetryDelay     time.Duration
 }
 type Receipt struct {
 	State        string `json:"state"`
@@ -163,14 +166,28 @@ func (p *Poller) Poll(ctx context.Context) (Receipt, error) {
 		return receipt, pollError{"import_unavailable"}
 	}
 	var current model.WorkspaceSyncStatus
-	if json.Unmarshal(data, &current) != nil || current.Mode != "git_managed" || current.Repository != Repository {
+	if json.Unmarshal(data, &current) != nil || current.Mode != "git_managed" || !ValidRepository(current.Repository) {
 		return receipt, pollError{"import_unavailable"}
 	}
+	name := strings.TrimPrefix(current.Repository, "https://github.com/")
+	repositoryAPI := "/repos/" + name
+	pWorkflow := p.Workflow
+	if pWorkflow == "" {
+		pWorkflow = Workflow
+	}
+	prefix := p.ArtifactPrefix
+	if prefix == "" {
+		prefix = "gherkin-specs-v2"
+	}
+	if !workflowPattern.MatchString(pWorkflow) || !artifactPrefixPattern.MatchString(prefix) {
+		return receipt, pollError{"candidate_rejected"}
+	}
+	workflowAPI := repositoryAPI + "/actions/workflows/" + path.Base(pWorkflow)
 	var repository githubRepository
 	if err = p.get(ctx, repositoryAPI, &repository); err != nil {
 		return receipt, err
 	}
-	if repository.ID <= 0 || repository.FullName != "matk0/vozokany" {
+	if repository.ID <= 0 || repository.FullName != name {
 		return receipt, pollError{"candidate_rejected"}
 	}
 	var branch struct {
@@ -185,16 +202,16 @@ func (p *Poller) Poll(ctx context.Context) (Receipt, error) {
 		ID   int64  `json:"id"`
 		Path string `json:"path"`
 	}
-	if err = p.get(ctx, repositoryAPI+"/actions/workflows/verify.yml", &workflow); err != nil {
+	if err = p.get(ctx, workflowAPI, &workflow); err != nil {
 		return receipt, err
 	}
-	if workflow.ID <= 0 || workflow.Path != Workflow {
+	if workflow.ID <= 0 || workflow.Path != pWorkflow {
 		return receipt, pollError{"candidate_rejected"}
 	}
 	var runs struct {
 		Runs []githubRun `json:"workflow_runs"`
 	}
-	if err = p.get(ctx, repositoryAPI+"/actions/workflows/verify.yml/runs?branch=main&event=push&per_page=10", &runs); err != nil {
+	if err = p.get(ctx, workflowAPI+"/runs?branch=main&event=push&per_page=10", &runs); err != nil {
 		return receipt, err
 	}
 	if len(runs.Runs) == 0 {
@@ -219,7 +236,7 @@ func (p *Poller) Poll(ctx context.Context) (Receipt, error) {
 	if run.Status != "completed" || run.Conclusion != "success" {
 		return receipt, pollError{"no_eligible_main_run"}
 	}
-	if run.Path != Workflow || run.WorkflowID != workflow.ID || run.Event != "push" || run.HeadBranch != "main" || run.Repository.ID != repository.ID || run.HeadRepository.ID != repository.ID || run.Repository.FullName != repository.FullName || run.HeadRepository.FullName != repository.FullName || !commitPattern.MatchString(run.HeadSHA) || run.HeadSHA != branch.Commit.SHA {
+	if run.Path != pWorkflow || run.WorkflowID != workflow.ID || run.Event != "push" || run.HeadBranch != "main" || run.Repository.ID != repository.ID || run.HeadRepository.ID != repository.ID || run.Repository.FullName != repository.FullName || run.HeadRepository.FullName != repository.FullName || !commitPattern.MatchString(run.HeadSHA) || run.HeadSHA != branch.Commit.SHA {
 		return receipt, pollError{"candidate_rejected"}
 	}
 	receipt = Receipt{State: "unchanged", SourceCommit: run.HeadSHA, RunID: strconv.FormatInt(run.ID, 10), RunAttempt: run.Attempt, ContentHash: current.ContentHash}
@@ -265,7 +282,7 @@ func (p *Poller) Poll(ctx context.Context) (Receipt, error) {
 	if artifacts.Total != len(artifacts.Artifacts) {
 		return receipt, pollError{"artifact_unavailable"}
 	}
-	expected := fmt.Sprintf("vozokany-business-specs-v1-%s-%d-%d", run.HeadSHA, run.ID, run.Attempt)
+	expected := fmt.Sprintf("%s-%s-%d-%d", prefix, run.HeadSHA, run.ID, run.Attempt)
 	matches := []githubArtifact{}
 	for _, a := range artifacts.Artifacts {
 		if a.Name == expected {
@@ -300,7 +317,7 @@ func (p *Poller) Poll(ctx context.Context) (Receipt, error) {
 	if _, err = snapshot.Entries(); err != nil {
 		return receipt, pollError{"candidate_rejected"}
 	}
-	if snapshot.Source.Commit != run.HeadSHA || snapshot.Publication.RunID != receipt.RunID || snapshot.Publication.RunAttempt != run.Attempt || Hash(files["cucumber-messages.ndjson"]) != snapshot.Verification.MessagesHash {
+	if snapshot.Source.Repository != current.Repository || snapshot.Publication.Workflow != pWorkflow || snapshot.Source.Commit != run.HeadSHA || snapshot.Publication.RunID != receipt.RunID || snapshot.Publication.RunAttempt != run.Attempt || Hash(files["cucumber-messages.ndjson"]) != snapshot.Verification.MessagesHash {
 		return receipt, pollError{"candidate_rejected"}
 	}
 	var execution struct {

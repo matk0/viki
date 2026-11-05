@@ -202,3 +202,17 @@ func TestProviderUsesStructuredOutputAndDoesNotExposeErrorsOrCredentials(t *test
 		t.Fatal("cancel ignored")
 	}
 }
+
+func TestGenericSourceMetadataIsPreserved(t *testing.T) {
+	for _, text := range []string{"<!-- business-id: concept.consent -->", "@id:scenario.consent.001", "@concept:concept.consent", "CONSENT-001"} {
+		source := Content{Title: "Consent", BodyMD: text, StepTexts: []string{}}
+		translated := Content{Title: "Súhlas", BodyMD: text, StepTexts: []string{}}
+		if err := Validate(source, translated); err != nil {
+			t.Fatal(err)
+		}
+		translated.BodyMD = "translated identifier"
+		if err := Validate(source, translated); err == nil {
+			t.Fatal("identifier was not protected", text)
+		}
+	}
+}

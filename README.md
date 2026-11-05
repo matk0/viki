@@ -104,6 +104,12 @@ docker compose down -v
 
 An explicitly configured workspace can display canonical English business specifications and verified main-CI results from the Vozokany repository. Imported baselines are separate from human approvals and development. See [repository synchronization](docs/repository-sync.md) for authority, validation, scoped credentials, worker deployment and rollback. The default local workspace keeps its existing human-governed behavior.
 
+## Repository-managed Gherkin
+
+Viki can mirror an application's versioned Gherkin specifications and verified Cucumber results. The application owns its domain rules and executable step definitions; Viki validates, versions, searches and presents the published sources. Imported workspaces remain read-only, with optional Q&A and Slovak presentation.
+
+The generic v2 publication contract accepts opaque stable IDs, repository-relative source paths and application-independent execution metadata. Existing Vozokany v1 publications remain compatible. See [repository sync](docs/repository-sync.md) for configuration, supported Gherkin syntax, provenance checks and the existing Umbrel upgrade settings.
+
 ## Local development
 
 The Docker Compose path above is the supported full-stack setup. For focused source development, install the host dependencies first:
