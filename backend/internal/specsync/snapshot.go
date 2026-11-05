@@ -22,10 +22,9 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-const Repository = "https://github.com/matk0/vozokany"
 const Workflow = ".github/workflows/verify.yml"
 
-//go:embed contract/snapshot-v1.schema.json
+//go:embed contract/snapshot-v2.schema.json
 var schemaBytes []byte
 var newSchemaCompiler = jsonschema.NewCompiler
 
@@ -158,10 +157,10 @@ func Decode(data []byte) (Snapshot, error) {
 	return s, nil
 }
 
-var conceptID = regexp.MustCompile(`^VOZ-CON-[A-Z0-9-]+$`)
-var featureID = regexp.MustCompile(`^VOZ-FEAT-[A-Z0-9-]+$`)
-var scenarioID = regexp.MustCompile(`^VOZ-SC-[A-Z0-9-]+$`)
-var conceptHeader = regexp.MustCompile(`^<!-- business-id: (VOZ-CON-[A-Z0-9-]+) -->$`)
+// Identities are opaque, stable source metadata; their kind comes from the AST.
+var sourceID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+var conceptHeader = regexp.MustCompile(`^<!-- business-id: ([A-Za-z0-9][A-Za-z0-9_.-]{0,127}) -->$`)
+var conceptHeaders = regexp.MustCompile(`(?m)^<!-- business-id: [^\n]+ -->$`)
 var conceptRefs = regexp.MustCompile(`(?m)^<!-- relates-to: ([^\n]+) -->$`)
 var heading = regexp.MustCompile(`(?m)^# (.+)$`)
 
@@ -182,7 +181,7 @@ func (s Snapshot) Entries() ([]Entry, error) {
 	parsed := map[string]Scenario{}
 	entries := []Entry{}
 	for _, d := range s.Documents {
-		if _, ok := docs[d.ID]; ok || paths[d.Path] {
+		if _, ok := docs[d.ID]; ok || paths[d.Path] || !sourceID.MatchString(d.ID) {
 			return nil, fmt.Errorf("duplicate document identity or path")
 		}
 		docs[d.ID] = d
@@ -201,7 +200,7 @@ func (s Snapshot) Entries() ([]Entry, error) {
 		case "concept":
 			id := conceptHeader.FindStringSubmatch(strings.Split(d.Content, "\n")[0])
 			titles := heading.FindStringSubmatch(d.Content)
-			if len(regexp.MustCompile(`(?m)^<!-- business-id: VOZ-CON-[A-Z0-9-]+ -->$`).FindAllString(d.Content, -1)) != 1 || len(id) != 2 || !conceptID.MatchString(d.ID) || id[1] != d.ID || len(titles) != 2 || !strings.HasSuffix(d.Path, ".md") {
+			if len(conceptHeaders.FindAllString(d.Content, -1)) != 1 || len(id) != 2 || !sourceID.MatchString(d.ID) || id[1] != d.ID || len(titles) != 2 || !strings.HasSuffix(d.Path, ".md") {
 				return nil, fmt.Errorf("invalid concept source")
 			}
 			expected.Title = titles[1]
@@ -226,7 +225,7 @@ func (s Snapshot) Entries() ([]Entry, error) {
 				return nil, fmt.Errorf("unsupported feature syntax")
 			}
 			id, refs, err := tags(f.Tags, true)
-			if err != nil || id != d.ID || !featureID.MatchString(id) {
+			if err != nil || id != d.ID || !sourceID.MatchString(id) {
 				return nil, fmt.Errorf("invalid feature tags")
 			}
 			expected.Title = f.Name
@@ -239,7 +238,7 @@ func (s Snapshot) Entries() ([]Entry, error) {
 					return nil, fmt.Errorf("unsupported scenario syntax")
 				}
 				id, _, err := tags(sc.Tags, false)
-				if err != nil || !scenarioID.MatchString(id) {
+				if err != nil || !sourceID.MatchString(id) {
 					return nil, fmt.Errorf("invalid scenario tags")
 				}
 				if _, ok := parsed[id]; ok {
@@ -282,6 +281,11 @@ func (s Snapshot) Entries() ([]Entry, error) {
 			return nil, fmt.Errorf("parsed document differs from hashed source")
 		}
 		entries = append(entries, entry)
+	}
+	for id := range parsed {
+		if _, exists := docs[id]; exists {
+			return nil, fmt.Errorf("document and scenario identities collide")
+		}
 	}
 	for _, d := range s.Documents {
 		seen := map[string]bool{}
@@ -339,14 +343,14 @@ func tags(list []*messages.Tag, feature bool) (string, []string, error) {
 			return "", nil, fmt.Errorf("unsupported tag")
 		}
 	}
-	if id == "" || (feature && len(refs) == 0) {
+	if id == "" {
 		return "", nil, fmt.Errorf("missing metadata tags")
 	}
 	return id, refs, nil
 }
 func (s Snapshot) Eligible() error {
 	id, err := strconv.ParseInt(s.Publication.RunID, 10, 64)
-	if err != nil || id <= 0 || s.Source.Repository != Repository || s.Source.Dirty || s.Source.Commit == strings.Repeat("0", 40) || s.Publication.Kind != "main" || s.Publication.Event != "push" || s.Publication.Ref != "refs/heads/main" || s.Publication.Workflow != Workflow || s.Publication.RunAttempt < 1 || !s.Publication.Eligible || s.Verification.MessagesHash == "sha256:"+strings.Repeat("0", 64) {
+	if err != nil || id <= 0 || !ValidRepository(s.Source.Repository) || s.Source.Dirty || s.Source.Commit == strings.Repeat("0", 40) || s.Publication.Kind != "main" || s.Publication.Event != "push" || s.Publication.Ref != "refs/heads/main" || !workflowPattern.MatchString(s.Publication.Workflow) || s.Publication.RunAttempt < 1 || !s.Publication.Eligible || s.Verification.MessagesHash == "sha256:"+strings.Repeat("0", 64) {
 		return fmt.Errorf("snapshot is not eligible successful-main evidence")
 	}
 	return nil

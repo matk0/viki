@@ -1,20 +1,20 @@
 # Repository-managed business specifications
 
-An explicitly configured workspace mirrors the complete canonical English business catalogue from `matk0/vozokany`. Other workspaces retain Viki's existing human-governed draft/review behavior. Git-managed specifications are read-only: no independent page/draft/approval or Hermes Edit fork, and no developer queue. Repository CI evidence never means human approval or production deployment.
+An explicitly configured workspace mirrors a complete canonical English Gherkin catalogue from its configured GitHub repository. Other workspaces retain Viki's existing human-governed draft/review behavior. Git-managed specifications are read-only: no independent page/draft/approval or Hermes Edit fork, and no developer queue. Repository CI evidence never means human approval or production deployment.
 
-The producer owns schema version 1. Its schema, contract and minimal synthetic consumer fixture are mirrored under `backend/internal/specsync/contract/` and `testdata/`. Exact document UTF-8 bytes are hashed with SHA-256. The catalogue hashes ASCII-sorted `path + NUL + contentHash + LF` records. The official Go Gherkin parser independently derives the displayed fields and compares them with the snapshot. A modified parsed title, description, ID, parent, relationship, location or step cannot hide behind an unchanged source hash. Unsupported Gherkin is rejected.
+Viki defines the generic version-2 consumer contract and retains version-1 wire compatibility for the existing Vozokany publisher. The schemas, contract and minimal synthetic consumer fixture live under `backend/internal/specsync/contract/` and `testdata/`. Exact document UTF-8 bytes are hashed with SHA-256. The catalogue hashes ASCII-sorted `path + NUL + contentHash + LF` records. The official Go Gherkin parser independently derives the displayed fields and compares them with the snapshot. A modified parsed title, description, ID, parent, relationship, location or step cannot hide behind an unchanged source hash. Unsupported Gherkin is rejected.
 
 Repository pages and immutable business revisions use separate database tables and internal UUIDs. They never call `ApproveRevision`, have no human approval timestamp and create no development task. Stable source IDs map to persistent internal page identities. Content/run metadata is recorded per immutable snapshot; identical business content reuses its revision even when code/source/run/path metadata changes. A complete import locks its workspace, writes all entries and switches the current snapshot in one transaction. Removed entries leave current catalogue, search and Q&A but their versions remain addressable through authenticated history. A retry is idempotent; stale runs, conflicts and interrupted imports retain the last committed snapshot. Database triggers also reject writes to the human content tables for a Git-managed workspace.
 
 ## Private importer and poller
 
-`VIKI_GIT_REPOSITORY=https://github.com/matk0/vozokany` explicitly enables the initial workspace during startup. Activation refuses to hide a pre-existing human-authored catalogue. The mode persists in the database. Set a new random `VIKI_SNAPSHOT_IMPORT_TOKEN` of at least 32 characters and keep `VIKI_DEVELOPER_ENABLED=false`. All internal sync routes require that separate bearer token, never a browser session or the Hermes tool token. They are registered only on Viki's internal listener. The public authenticated `GET /api/v1/workspace/sync` exposes authority, exact last import, last completed poll, freshness and errors.
+`VIKI_GIT_REPOSITORY=https://github.com/<owner>/<repository>` explicitly enables the initial workspace during startup. The URL must be a canonical GitHub repository URL without credentials, query, fragment or additional path. The existing workspace repository cannot be silently replaced; use a separate instance for a different source. Activation refuses to hide a pre-existing human-authored catalogue. The mode persists in the database. Set a new random `VIKI_SNAPSHOT_IMPORT_TOKEN` of at least 32 characters and keep `VIKI_DEVELOPER_ENABLED=false`. All internal sync routes require that separate bearer token, never a browser session or the Hermes tool token. They are registered only on Viki's internal listener. The public authenticated `GET /api/v1/workspace/sync` exposes authority, exact last import, last completed poll, freshness and errors.
 
-`viki-sync` polls every five minutes with a 90-second attempt deadline, bounded HTTP retries, ordinary Docker restart behavior and rotated logs. It has no LLM, shell execution, repository write access, database credential or model-provider key. It reads only the approved private repository through a new dedicated fine-grained token: **resource owner matk0; only repository vozokany; Actions read, Contents read, Metadata read; no write permissions**. Use a bounded expiry and replace it before expiry. A failed/expired token leaves the baseline intact and exposes an authentication error/stale polling state. GitHub documents these [fine-grained token controls](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens), [Actions read permission](https://docs.github.com/en/rest/actions/artifacts) and [Contents read permission](https://docs.github.com/en/rest/commits/commits).
+`viki-sync` polls every five minutes with a 90-second attempt deadline, bounded HTTP retries, ordinary Docker restart behavior and rotated logs. It has no LLM, shell execution, repository write access, database credential or model-provider key. It reads only the approved private repository through a new dedicated fine-grained token: **only the configured repository; Actions read, Contents read, Metadata read; no write permissions**. Use a bounded expiry and replace it before expiry. A failed/expired token leaves the baseline intact and exposes an authentication error/stale polling state. GitHub documents these [fine-grained token controls](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens), [Actions read permission](https://docs.github.com/en/rest/actions/artifacts) and [Contents read permission](https://docs.github.com/en/rest/commits/commits).
 
 The worker checks the live repository ID, workflow ID/path, push event, main branch and current main SHA, completed successful run and exact attempt, then the artifact's immutable-style name, run/repository/SHA association, expiry, size and SHA-256 archive digest. An older or diverged candidate cannot replace a newer baseline. Branch and run eligibility are checked again after download to close the in-flight window.
 
-Expected artifact: `vozokany-business-specs-v1-<source-sha>-<run-id>-<attempt>`, containing exactly `snapshot.json`, `execution.json` and `cucumber-messages.ndjson`. ZIP contents are read with size/name/type limits and never executed or extracted onto the host. The execution wrapper is the producer's `{source:{commit,dirty,fingerprint},publication,verification}`; clean-source fingerprint and all copied provenance/results must match. The raw message hash, exact executed feature-source set, scenario set, ordered source/executable step texts, passing steps/hooks, single real step-definition matches, complete non-retried run and per-scenario Rust fixture receipts are independently checked. The local and PR publications are always ineligible for live import.
+Expected artifact: `<VIKI_GIT_ARTIFACT_PREFIX>-<source-sha>-<run-id>-<attempt>` (default prefix `gherkin-specs-v2`), containing exactly `snapshot.json`, `execution.json` and `cucumber-messages.ndjson`. ZIP contents are read with size/name/type limits and never executed or extracted onto the host. The execution wrapper is the producer's `{source:{commit,dirty,fingerprint},publication,verification}`; clean-source fingerprint and all copied provenance/results must match. The raw message hash, exact executed feature-source set, scenario set, ordered source/executable step texts, passing steps/hooks, single real step-definition matches and complete non-retried run are independently checked. The local and PR publications are always ineligible for live import.
 
 The UI polls authority/catalogue status every thirty seconds and keeps the last successful view on a failed refresh. Imported pages use Viki's standard catalogue, document reader and history dialog. Canonical English prose and Gherkin remain unchanged in storage. Repository identifiers, hashes, CI receipts, polling state and exact-source panels are not added to the reading interface; provenance remains available through the authenticated API and Q&A citations. Write controls are disabled and human approval/discussion panels are unavailable for imported pages. Q&A remains available and cites exact imported revisions.
 
@@ -55,8 +55,7 @@ Migration 020 adds translation versions and a durable job table separately from
 business revisions. Set `VIKI_LOCALIZATION_ENABLED=true`, `OPENAI_API_KEY` and
 optionally `VIKI_LOCALIZATION_MODEL` (default: the existing `gpt-5.6-terra`) to run
 the background translator inside Viki. It uses the official Responses endpoint,
-strict structured output, no tools, no stored provider responses and a fixed farm
-terminology glossary. Reading never calls the model. Verified imports are independent
+strict structured output, no tools, no stored provider responses and domain-neutral translation instructions. Reading never calls the model. Verified imports are independent
 of translation availability. The Git poller retains its existing capabilities and
 has no model credential. The Umbrel app receives the same existing provider key
 already used by its dedicated Hermes; the key is never returned to the browser.
@@ -79,3 +78,35 @@ translations remain visible until the complete replacement is stored. There is n
 public translation-write route or human draft/approval workflow for this derived data.
 An image rollback to the previous release can leave migration 020 and its additive
 tables in place; preserve the pre-upgrade configuration, database and Hermes backup.
+
+## Generic source configuration and existing Vozokany deployment
+
+The app owns `VIKI_GIT_REPOSITORY`. The authenticated internal sync status supplies that repository identity to the worker, so there is no second repository setting that can drift. The worker uses:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `VIKI_GIT_WORKFLOW` | `.github/workflows/verify.yml` | Trusted workflow path; one `.yml`/`.yaml` file under `.github/workflows/`. |
+| `VIKI_GIT_ARTIFACT_PREFIX` | `gherkin-specs-v2` | Exact artifact prefix, followed by source SHA, run ID and attempt. |
+
+The successful-push-to-`main` policy is unchanged. Other Git hosts, multi-workspace onboarding and broader Gherkin syntax are outside this change. The generic contract is documented in `backend/internal/specsync/contract/CONTRACT.md`.
+
+**Upgrade the existing Vozokany worker with its deployment configuration, not by swapping the image alone.** The tracked `deploy/umbrel/compose.yaml` explicitly sets:
+
+```yaml
+VIKI_GIT_WORKFLOW: .github/workflows/verify.yml
+VIKI_GIT_ARTIFACT_PREFIX: vozokany-business-specs-v1
+```
+
+Keep its existing repository URL, scoped credentials, database, images' release pairing and localization settings. Its current v1 artifacts remain valid. No producer or source changes, database migration, reimport, translation regeneration or deployed-instance change are required by this code refactor. Stored Slovak translations are preserved; future translations use domain-neutral policy `sk-v3`.
+
+Viki's execution validator now consumes standard Cucumber results instead of requiring a Vozokany-specific Rust attachment. Runtime/fixture assertions remain the publisher's responsibility, enforced by its configured successful CI workflow. Artifact identity, archive/message digests, exact source matching, complete passing execution, read-only boundaries and stale-run protection remain enforced. Repository links in catalogue/history responses come from the stored snapshot provenance.
+
+To check a retained real Vozokany CI archive locally (does not poll, import or contact production):
+
+```sh
+cd backend
+VIKI_TEST_COMPATIBILITY_ARCHIVE=/absolute/path/to/producer-attempt-4.zip \
+  go test ./internal/specsync -run TestArchivedVozokanyArtifactCompatibility -count=1 -v
+```
+
+The archived CI check is compatibility evidence, not a fresh application execution or second-project validation.

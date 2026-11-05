@@ -74,6 +74,10 @@ func TestLocalizationPreservesCanonicalHistoryAndIdempotentImports(t *testing.T)
 		t.Fatal(other, err)
 	}
 	base.Publication.RunAttempt = 2
+	// A new wire contract must reuse exact business revisions and translations.
+	base.Format = "gherkin-specification"
+	base.SchemaVersion = 2
+	base.Verification.SchemaVersion = 2
 	importOK(t, r, org, base)
 	if revisionCount(t, pool, org) != 3 {
 		t.Fatal("translation or repeated CI created business revisions")

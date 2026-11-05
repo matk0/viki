@@ -33,7 +33,18 @@ func WorkerFromEnvironment(env func(string) string) (*Poller, error) {
 	if u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || u.Port() == "" || (u.Hostname() != "viki" && (ip == nil || !ip.IsLoopback())) {
 		return nil, fmt.Errorf("sync URL must be an explicit private Viki service or loopback HTTP listener")
 	}
-	return &Poller{Client: NewHTTPClient(), GitHubURL: "https://api.github.com", ImportURL: target, GitHubToken: githubToken, ImportToken: importToken, Now: time.Now, RetryDelay: time.Second}, nil
+	workflow := env("VIKI_GIT_WORKFLOW")
+	if workflow == "" {
+		workflow = Workflow
+	}
+	prefix := env("VIKI_GIT_ARTIFACT_PREFIX")
+	if prefix == "" {
+		prefix = "gherkin-specs-v2"
+	}
+	if !workflowPattern.MatchString(workflow) || !artifactPrefixPattern.MatchString(prefix) {
+		return nil, fmt.Errorf("invalid repository workflow or artifact prefix")
+	}
+	return &Poller{Workflow: workflow, ArtifactPrefix: prefix, Client: NewHTTPClient(), GitHubURL: "https://api.github.com", ImportURL: target, GitHubToken: githubToken, ImportToken: importToken, Now: time.Now, RetryDelay: time.Second}, nil
 }
 func pollOnce(ctx context.Context, worker Worker, timeout time.Duration, logger *slog.Logger) {
 	attempt, cancel := context.WithTimeout(ctx, timeout)

@@ -31,7 +31,7 @@ func syncFixture(t *testing.T) (*Repository, *pgxpool.Pool, *databaseFault, stri
 			_, _ = pool.Exec(ctx, query, org)
 		}
 	})
-	if err = r.ConfigureRepositoryWorkspace(context.Background(), org, specsync.Repository); err != nil {
+	if err = r.ConfigureRepositoryWorkspace(context.Background(), org, "https://github.com/matk0/vozokany"); err != nil {
 		t.Fatal(err)
 	}
 	return r, pool, fault, org
@@ -363,8 +363,8 @@ func TestRepositoryReadFailuresAndIdempotentCommitInterruption(t *testing.T) {
 		name, method, query string
 		run                 func() error
 	}{
-		{"configure exec", "exec", "INSERT INTO workspace_repository_sync", func() error { return r.ConfigureRepositoryWorkspace(ctx, org, specsync.Repository) }},
-		{"configure status", "query_row", "SELECT w.repository", func() error { return r.ConfigureRepositoryWorkspace(ctx, org, specsync.Repository) }},
+		{"configure exec", "exec", "INSERT INTO workspace_repository_sync", func() error { return r.ConfigureRepositoryWorkspace(ctx, org, "https://github.com/matk0/vozokany") }},
+		{"configure status", "query_row", "SELECT w.repository", func() error { return r.ConfigureRepositoryWorkspace(ctx, org, "https://github.com/matk0/vozokany") }},
 		{"workspace status", "query_row", "SELECT w.repository", func() error { _, err := r.WorkspaceSyncStatus(ctx, org); return err }},
 		{"duplicate update", "tx_exec", "UPDATE workspace_repository_sync SET last_checked_at", func() error { _, err := r.ImportRepositorySnapshot(ctx, org, s); return err }},
 		{"duplicate commit", "commit", "", func() error { _, err := r.ImportRepositorySnapshot(ctx, org, s); return err }},
@@ -430,7 +430,7 @@ func TestRepositoryCorruptStorageAndHumanModeActivationSafety(t *testing.T) {
 	if _, err := r.ImportRepositorySnapshot(ctx, org, s); err == nil {
 		t.Fatal("workspace repository mismatch")
 	}
-	_, _ = pool.Exec(ctx, `UPDATE workspace_repository_sync SET repository=$2 WHERE organization_id=$1`, org, specsync.Repository)
+	_, _ = pool.Exec(ctx, `UPDATE workspace_repository_sync SET repository=$2 WHERE organization_id=$1`, org, "https://github.com/matk0/vozokany")
 	_, _ = pool.Exec(ctx, `UPDATE repository_snapshots SET snapshot='{"format":[]}'::jsonb WHERE organization_id=$1`, org)
 	if _, err := r.ImportRepositorySnapshot(ctx, org, s); err == nil {
 		t.Fatal("corrupt run receipt accepted")
@@ -447,7 +447,7 @@ func TestRepositoryCorruptStorageAndHumanModeActivationSafety(t *testing.T) {
 		t.Fatal("corrupt page accepted")
 	}
 	human := newFaultFixture(t)
-	if err := human.repository.ConfigureRepositoryWorkspace(ctx, human.organizationID, specsync.Repository); err == nil {
+	if err := human.repository.ConfigureRepositoryWorkspace(ctx, human.organizationID, "https://github.com/matk0/vozokany"); err == nil {
 		t.Fatal("existing human catalogue hidden by Git mode")
 	}
 	for _, op := range []func() error{func() error { _, err := human.repository.ListPages(ctx, human.organizationID, nil); return err }, func() error {
@@ -470,5 +470,42 @@ func TestRepositoryCorruptStorageAndHumanModeActivationSafety(t *testing.T) {
 	human.fault.activate("disabled", "", 1)
 	if _, err := pool.Exec(ctx, `INSERT INTO pages(organization_id,kind,concept_kind,slug,created_by) VALUES($1,'concept','noun','forbidden',$2)`, org, uuid.NewString()); err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Fatal("database trigger did not reject canonical fork", err)
+	}
+}
+
+func TestRepositoryAuthorityCannotChangeAndProvenanceComesFromSnapshot(t *testing.T) {
+	r, pool, _, org := syncFixture(t)
+	ctx := context.Background()
+	base := eligibleFixture(t)
+	importOK(t, r, org, base)
+	if err := r.ConfigureRepositoryWorkspace(ctx, org, base.Source.Repository); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ConfigureRepositoryWorkspace(ctx, org, "https://github.com/matk0/not-the-configured-repository"); err == nil {
+		t.Fatal("rebound existing workspace")
+	}
+	status, err := r.WorkspaceSyncStatus(ctx, org)
+	if err != nil || status.Repository != base.Source.Repository || status.PageCount != 3 {
+		t.Fatal(status, err)
+	}
+	// Inspect both list and immutable-revision projections. Changing only the stored
+	// provenance in this disposable fixture makes a hard-coded URL regression visible.
+	historicalRepository := "https://github.com/matk0/vozokany-archived"
+	_, err = pool.Exec(ctx, `UPDATE repository_snapshots SET snapshot=jsonb_set(snapshot,'{source,repository}',to_jsonb($2::text)) WHERE organization_id=$1`, org, historicalRepository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages, err := r.RepositoryPages(ctx, org, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range pages {
+		if page.RepositorySource.Repository != historicalRepository {
+			t.Fatal("list lost source provenance", page)
+		}
+		revision, err := r.RepositoryRevision(ctx, org, *page.RepositoryRevisionID)
+		if err != nil || revision.RepositorySource.Repository != historicalRepository {
+			t.Fatal("history lost source provenance", revision, err)
+		}
 	}
 }

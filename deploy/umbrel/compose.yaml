@@ -131,6 +131,8 @@ services:
         condition: service_healthy
     env_file: [.sync.env]
     environment:
+      VIKI_GIT_WORKFLOW: .github/workflows/verify.yml
+      VIKI_GIT_ARTIFACT_PREFIX: vozokany-business-specs-v1
       VIKI_SYNC_INTERNAL_URL: http://viki:8090
       VIKI_SNAPSHOT_IMPORT_TOKEN: ${VIKI_SNAPSHOT_IMPORT_TOKEN:?Set a separate random import credential}
     networks: [assistant, sync-egress]
