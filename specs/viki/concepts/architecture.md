@@ -21,13 +21,17 @@ human review, assistant editing, and the developer worker are unavailable.
 
 Public Q&A uses OpenAI gpt-oss-20b through Cloudflare Workers AI. The same model
 is listed in NVIDIA's catalogue, but this demo does not use NVIDIA's hosted trial
-API. Each question makes one bounded model call. Answers cite supplied source
+API. Each question makes at most two bounded model calls, with one retry for
+known temporary inference or structured-output failures. Each call has a
+15-second timeout. Answers cite supplied source
 revisions; citations are checked against the supplied sources before display.
 This does not prove that every answer's interpretation is correct.
 
 Chat history stays in the individual browser tab and clears on reload. The server
 does not store conversations. Recent messages are sent to Cloudflare AI for
 follow-up questions. Cloudflare D1 stores daily usage counters, with hashed
-visitor and IP buckets. The initial limits are 20 questions globally per UTC day,
-five per visitor, and ten per IP. When a limit or provider allowance is reached,
+visitor and IP buckets. The limits are 20 model attempts globally per UTC day,
+including retries, five questions per visitor, and ten per IP. Failed attempts
+also count. Content-free diagnostics record failure categories and a request
+reference; application logs contain no conversation text. When a limit or provider allowance is reached,
 Q&A pauses while the reader and search remain available.
