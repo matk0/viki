@@ -1,30 +1,84 @@
-# viki
+# Viki
 
-> A local-first, human-governed specification wiki that turns company knowledge into linked concepts, features, and Gherkin scenarios.
+**A specification wiki for understanding what a system does, why it does it, and which behavior has been checked.**
 
-Viki helps a team turn informal knowledge into a shared, reviewable specification. It keeps proposed changes as drafts instead of silently overwriting agreed requirements. Its optional Slovak-first assistant can answer questions from the workspace or prepare drafts, while people remain responsible for review and approval.
+Requirements tend to end up scattered across documents, conversations, code, and tests. Viki brings them into one linked catalogue: shared vocabulary, system capabilities, and concrete examples written in Gherkin. People can read the specification, trace related ideas, inspect earlier revisions, and ask an optional assistant questions with revision citations.
 
-> [!WARNING]
-> Viki is an early-stage, local-development project. The supplied Docker Compose stack binds the web app to `127.0.0.1` by default and refuses to start without locally supplied credentials, but it is not a public-production deployment guide.
+Viki has two ways to maintain that catalogue. A team can write and review specifications in the wiki, or keep them in Git and publish a read-only view after CI verifies them. These are separate sources of authority: a passing test run records execution evidence; a person's approval records agreement.
 
-## What Viki does
+## Start with the behavior
 
-Viki organizes a company's operational knowledge into a deliberate hierarchy:
+A specification has three building blocks:
 
-1. **Concepts** define shared domain vocabulary, as nouns and actions.
-2. **Features** describe business capabilities.
-3. **Scenarios** sit beneath a feature and capture concrete behaviour as Gherkin `Given` / `When` / `Then` steps.
+| Building block | Purpose | Example in Viki itself |
+| --- | --- | --- |
+| **Concept** | Define a shared term. | A revision is a version of a page's content. |
+| **Feature** | Explain a capability and its purpose. | Review a proposed specification change before accepting it. |
+| **Scenario** | Describe a concrete example using `Given` / `When` / `Then`. | An unresolved objection prevents approval. |
 
-Every change is versioned. A change starts as a draft, may be discussed or challenged, and is approved only after review. Unresolved objections block approval; a scenario also requires an approved parent feature. The UI includes search, revision history, change history, comments, objections, and reusable Gherkin step definitions.
+For example, one of Viki's review rules can be expressed as:
 
-### Assistant modes
+```gherkin
+Feature: Review specification changes
+  Proposed changes remain drafts until a person approves them.
 
-The embedded assistant is optional and deliberately constrained:
+  Scenario: An unresolved objection blocks approval
+    Given a draft revision has an unresolved objection
+    When a reviewer tries to approve the revision
+    Then approval is rejected
+    And the revision remains a draft
+```
 
-- **Q&A** searches and explains the workspace with revision citations. It is read-only.
-- **Edit** identifies relevant concepts, features, and scenarios, then creates linked draft revisions for a human to review. It cannot approve or publish them.
+This is an explanatory example. To import a repository's scenarios with execution evidence, a publisher must provide the stable IDs, supported syntax, sources, and genuine Cucumber results required by the [publication contract](backend/internal/specsync/contract/CONTRACT.md).
 
-The assistant uses the configured OpenAI-compatible provider only when it is enabled. Without an API key, the core wiki remains usable and the assistant is unavailable.
+## Two ways to use Viki
+
+### Write and review in the wiki
+
+Create concepts, features, and scenarios directly in Viki. Edits become versioned drafts. Reviewers can discuss a change, raise objections, and approve it when the blockers are resolved. An unresolved objection blocks approval, and a scenario requires an approved parent feature.
+
+This mode includes comments, objections, reusable Gherkin steps, revision history, and an audit trail. The optional assistant can prepare linked draft revisions; people make the approval decision.
+
+### Publish specifications from Git
+
+Keep canonical English Markdown and Gherkin in the application repository, alongside the implementation and executable step definitions. Its CI runs the scenarios and publishes sources together with Cucumber execution evidence.
+
+```mermaid
+flowchart LR
+  Repository[Application repository] --> CI[Successful main-branch CI]
+  CI --> Artifact[Sources and Cucumber results]
+  Artifact --> Import[Viki validates and imports]
+  Import --> Reader[Read-only catalogue, search, and Q&A]
+```
+
+Viki polls the configured GitHub repository, checks the publication's provenance and execution results, and imports a complete snapshot atomically. Stable source IDs preserve page identity through renames and moves. Unchanged specification content reuses its revision; a failed import retains the last valid snapshot.
+
+Imported pages stay read-only. Changes go through the application repository and its CI. Viki presents the published evidence; it does not execute application code or deploy the application.
+
+The generic version-2 contract supports application-independent publishers and retains compatibility with the existing Vozokany version-1 publisher. The current parser accepts a deliberately limited English Gherkin subset; outlines, backgrounds, tables, and other unsupported constructs are rejected. See [repository synchronization](docs/repository-sync.md) for configuration, validation, and deployment boundaries.
+
+### Optional assistant and Slovak presentation
+
+- **Q&A** retrieves workspace content and answers with revision citations.
+- **Edit** prepares linked drafts in a human-governed workspace. It cannot approve them and is unavailable for Git-managed workspaces.
+- **Slovak presentation** can translate imported English revisions in the background. English remains canonical, and translations are tied to the exact source revision. Reading a translation makes no model call.
+
+The core wiki works without a model-provider key. Assistant requests and background translation require a configured provider and incur its usage charges. Translation validation checks structure and protected tokens; it does not prove that the translated meaning is correct.
+
+## Viki describing itself
+
+The [self-documenting catalogue](specs/viki/README.md) explains Viki using its own vocabulary: concepts, features, and scenarios. It covers specification revisions, review rules, repository authority, assistant permissions, and translations, with links to the implementation and existing tests.
+
+These sources are the starting point for a public instance in which visitors can explore how Viki works and ask questions about it. The public instance is not deployed yet. The catalogue's Gherkin is explanatory: it does not currently have Cucumber step bindings or an eligible CI publication, and must not be presented as imported execution evidence.
+
+## Project status
+
+Viki is an early-stage, single-organization pilot built with React, Go, PostgreSQL, and Hermes. The Git-managed reader has been used with Vozokany, including automatic CI-artifact imports and Slovak presentation. The generic publication contract still needs validation with a second application.
+
+The local stack is available below, and [the Umbrel configuration](deploy/umbrel/compose.yaml) supports the existing private installation. Anonymous public access, Git write-back, and autonomous software delivery are not currently supported. The optional developer worker is experimental; its bundled target only returns a receipt.
+
+> [!NOTE]
+> The default Docker Compose stack binds to `127.0.0.1`. It is a local setup, not a public hosting configuration. The fixed bootstrap account is another current pilot limitation.
 
 ## Quick start
 
@@ -33,9 +87,11 @@ The assistant uses the configured OpenAI-compatible provider only when it is ena
 - Docker Engine with Docker Compose
 - An OpenAI API key only if you want to enable the assistant
 
-Clone the repository, enter it, then create a local environment file:
+Clone the repository and create a local environment file:
 
 ```sh
+git clone https://github.com/matk0/viki.git
+cd viki
 cp .env.example .env
 ```
 
@@ -100,16 +156,6 @@ To remove all local application data, including the PostgreSQL and Hermes volume
 docker compose down -v
 ```
 
-## Repository-managed read-only mirror
-
-An explicitly configured workspace can display canonical English business specifications and verified main-CI results from the Vozokany repository. Imported baselines are separate from human approvals and development. See [repository synchronization](docs/repository-sync.md) for authority, validation, scoped credentials, worker deployment and rollback. The default local workspace keeps its existing human-governed behavior.
-
-## Repository-managed Gherkin
-
-Viki can mirror an application's versioned Gherkin specifications and verified Cucumber results. The application owns its domain rules and executable step definitions; Viki validates, versions, searches and presents the published sources. Imported workspaces remain read-only, with optional Q&A and Slovak presentation.
-
-The generic v2 publication contract accepts opaque stable IDs, repository-relative source paths and application-independent execution metadata. Existing Vozokany v1 publications remain compatible. See [repository sync](docs/repository-sync.md) for configuration, supported Gherkin syntax, provenance checks and the existing Umbrel upgrade settings.
-
 ## Local development
 
 The Docker Compose path above is the supported full-stack setup. For focused source development, install the host dependencies first:
@@ -168,6 +214,8 @@ make test-coverage
 ```
 
 `make test-integration` and `make test-coverage` recreate the `viki_test` database. They do not touch the main `viki` database, but they are destructive to that test database. The coverage gate enforces 100% coverage for Go, frontend, and the Hermes plugin, and writes reports to the ignored `coverage/` directory.
+
+The Compose file declares a fixed project name, so a separate Git worktree alone does not isolate its containers or volumes. For isolated checks, set a unique project name, for example `COMPOSE_PROJECT_NAME=viki-checks make test-coverage`. The test targets expect PostgreSQL on `127.0.0.1:5433`; that port must be available to the selected test stack.
 
 Run browser tests against a running application (default: `http://127.0.0.1:8080`):
 
