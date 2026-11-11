@@ -14,6 +14,8 @@ Vozokany installation.
   page IDs; changed content changes the revision ID. There is no retained
   history of earlier deployments. These descriptive scenarios have no Cucumber
   bindings and are not presented as verified execution evidence.
+  The public reader loads once rather than continuously polling the bundled
+  catalogue, avoiding unnecessary dynamic requests while a tab stays open.
 - Questions use one synchronous gpt-oss-20b inference through Cloudflare Workers
   AI. Retrieval selects up to six public source excerpts. Responses use strict
   JSON output; unknown citation IDs, incomplete output, or invalid JSON are
