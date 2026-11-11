@@ -15,8 +15,11 @@ import { useWorkspace } from '../workspace';
 import { AssistantPanel } from './assistant/AssistantPanel';
 import { NewPageDialog } from './NewPageDialog';
 import { LanguageSwitcher, useI18n } from '../i18n';
+import { isPublicDemo } from '../deployment';
+import { PublicAssistantPanel } from './assistant/PublicAssistantPanel';
 
 export function Layout({ children }: { children: ReactNode }) {
+  const publicDemo = isPublicDemo();
   const { t } = useI18n();
   const { user, logout } = useAuth();
   const { voice } = useAssistant();
@@ -39,6 +42,7 @@ export function Layout({ children }: { children: ReactNode }) {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'm') {
         event.preventDefault();
         setAssistantOpen(true);
+        if (publicDemo) return;
         if (voice.listening) voice.stop();
         else voice.start();
         return;
@@ -60,9 +64,9 @@ export function Layout({ children }: { children: ReactNode }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [navigate, setAssistantOpen, closeNewPage, voice.cancel, voice.listening, voice.start, voice.stop]);
+  }, [navigate, setAssistantOpen, closeNewPage, voice.cancel, voice.listening, voice.start, voice.stop, publicDemo]);
   return (
-    <div className={`app-shell ${assistantVisible ? 'assistant-visible' : ''}`}>
+    <div className={`app-shell ${assistantVisible ? 'assistant-visible' : ''} ${publicDemo ? 'public-demo' : ''}`}>
       <button
         className="mobile-menu"
         onClick={() => setMobileOpen(true)}
@@ -82,7 +86,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <Link to="/concepts" className="wordmark">
             viki
           </Link>
-          <LanguageSwitcher className="sidebar-language" />
+          {!publicDemo && <LanguageSwitcher className="sidebar-language" />}
           <button
             className="icon-button mobile-only"
             onClick={() => setMobileOpen(false)}
@@ -115,15 +119,15 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             {t('kind.features')}
           </NavItem>
-          <NavItem
+          {!publicDemo && <NavItem
             to="/audit"
             active={pathname === '/audit'}
             icon={<Clock3 size={16} />}
           >
             {t('nav.audit')}
-          </NavItem>
+          </NavItem>}
         </nav>
-        <div className="sidebar-user">
+        {publicDemo ? <div className="public-demo-footer"><strong>Viki explains Viki</strong><span>Read-only public demo</span><a href="https://github.com/matk0/viki">Source on GitHub ↗</a></div> : <div className="sidebar-user">
           <div className="avatar">{user?.displayName.slice(0, 1)}</div>
           <div>
             <strong>{user?.displayName}</strong>
@@ -136,9 +140,9 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             <LogOut size={16} />
           </button>
-        </div>
+        </div>}
       </aside>
-      <main className="main-content">{children}</main>
+      <main className="main-content">{publicDemo && <div className="public-demo-banner"><strong>Viki, explained by Viki.</strong><span>Explore Viki’s own concepts, features, and scenarios. Ask a question to trace an answer back to its sources.</span></div>}{children}</main>
       <button
         className={`assistant-fab ${assistantVisible ? 'active' : ''}`}
         onClick={() => {
@@ -149,7 +153,7 @@ export function Layout({ children }: { children: ReactNode }) {
       >
         <img src="/assistant-stars.svg" alt="" aria-hidden="true" />
       </button>
-      {assistantVisible && (
+      {publicDemo ? <aside className="assistant-drawer" hidden={!assistantVisible}><PublicAssistantPanel /></aside> : assistantVisible && (
         <aside className="assistant-drawer">
           <AssistantPanel />
         </aside>

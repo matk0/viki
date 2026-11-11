@@ -1,4 +1,4 @@
-.PHONY: dev backend frontend install-git-hooks test test-guardrails test-backend test-integration test-frontend test-hermes test-e2e test-coverage test-coverage-backend test-coverage-frontend test-coverage-hermes reset-test-database generate compose-up compose-down
+.PHONY: dev backend frontend install-git-hooks test test-guardrails test-backend test-integration test-frontend test-hermes test-public test-e2e test-coverage test-coverage-backend test-coverage-frontend test-coverage-hermes reset-test-database generate compose-up compose-down
 
 GO_COVERAGE_MIN ?= 100
 HERMES_COVERAGE_MIN ?= 100
@@ -21,7 +21,7 @@ frontend:
 install-git-hooks:
 	./scripts/install_git_hooks.sh
 
-test: test-guardrails test-backend test-frontend test-hermes
+test: test-guardrails test-backend test-frontend test-hermes test-public
 
 test-guardrails:
 	node --test scripts/lefthook_contract.test.mjs
@@ -38,10 +38,13 @@ test-frontend:
 test-hermes:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s hermes/tests -v
 
+test-public:
+	cd public-demo && npm test
+
 test-e2e:
 	cd frontend && npm run test:e2e
 
-test-coverage: test-guardrails test-coverage-backend test-coverage-frontend test-coverage-hermes
+test-coverage: test-guardrails test-coverage-backend test-coverage-frontend test-coverage-hermes test-public
 
 test-coverage-backend: reset-test-database
 	mkdir -p coverage

@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react'
+import { isPublicDemo } from './deployment'
 
 export type Locale = 'sk' | 'en'
 
@@ -331,6 +332,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 }
 
 function readStoredLocale(): Locale {
+  if (isPublicDemo()) return 'en'
   return typeof window.localStorage?.getItem === 'function' && window.localStorage.getItem('viki.locale') === 'en' ? 'en' : 'sk'
 }
 

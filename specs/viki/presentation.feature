@@ -5,6 +5,8 @@ Feature: Present canonical English specifications in Slovak
 
   @id:VIKI-SC-PRESENTATION-CANONICAL
   Scenario: A translation leaves the canonical revision unchanged
+    Selecting a presentation language changes what the reader sees, while
+    citations retain the identity of the canonical English revision.
     Given an imported English revision has a completed Slovak translation
     When a reader selects Slovak
     Then the reader sees the translation associated with that revision
@@ -12,6 +14,8 @@ Feature: Present canonical English specifications in Slovak
 
   @id:VIKI-SC-PRESENTATION-FALLBACK
   Scenario: A missing translation falls back to the current English revision
+    Readers see the latest canonical content rather than a translation that
+    belongs to a different business revision.
     Given the current imported revision has no completed Slovak translation
     When a reader selects Slovak
     Then the current English content is displayed with a translation notice

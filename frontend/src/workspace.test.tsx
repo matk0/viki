@@ -79,3 +79,16 @@ it('polls automatically and ignores success/failure from superseded in-flight re
  expect(result.current.loadingPages).toBe(false)
  unmount();vi.useRealTimers()
 })
+
+it('loads the bundled public catalogue once without background polling', async () => {
+ vi.stubEnv('VITE_PUBLIC_DEMO','true')
+ vi.useFakeTimers()
+ mocks.pages.mockResolvedValue({pages:[]})
+ const {result,unmount}=renderHook(()=>useWorkspace(),{wrapper})
+ await act(async()=>{await vi.advanceTimersByTimeAsync(120000)})
+ expect(result.current.loadingPages).toBe(false)
+ expect(mocks.pages).toHaveBeenCalledTimes(1)
+ unmount()
+ vi.useRealTimers()
+ vi.unstubAllEnvs()
+})

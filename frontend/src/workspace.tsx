@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { api } from './api/client'
 import { useI18n } from './i18n'
 import { localizedPage } from './localization'
+import { isPublicDemo } from './deployment'
 import type { Page, PageKind, WorkspaceSyncStatus } from './api/types'
 
 interface WorkspaceValue {
@@ -57,7 +58,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (sequence === loadSequence.current) setLoadingPages(false)
     }
   }, [])
-  useEffect(() => { void reloadPages(); const timer = window.setInterval(() => void reloadPages(), 30000); return () => {loadSequence.current++; window.clearInterval(timer)} }, [reloadPages])
+  useEffect(() => { void reloadPages(); const timer = isPublicDemo() ? undefined : window.setInterval(() => void reloadPages(), 30000); return () => {loadSequence.current++; window.clearInterval(timer)} }, [reloadPages])
   const displayedPages = useMemo(() => pages.map((page) => localizedPage(page, locale)), [pages, locale])
   const value = useMemo(() => ({
     syncStatus, syncError, readOnly, pages: displayedPages, loadingPages, reloadPages,

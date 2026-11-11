@@ -1,0 +1,20 @@
+{
+  "name": "viki-public-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "catalogue": "node scripts/build-catalogue.mjs",
+    "build": "npm run catalogue && npm --prefix ../frontend run build:public && cp static/_headers ../frontend/dist/_headers",
+    "test": "npm run catalogue && node --test test/*.test.mjs",
+    "test:e2e": "npm run build && npm run migrate:local && npm --prefix ../frontend run test:e2e:public",
+    "dev": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate:remote": "wrangler d1 migrations apply DB --remote"
+  },
+  "devDependencies": {
+    "@cucumber/gherkin": "42.0.1",
+    "@cucumber/messages": "34.2.1",
+    "wrangler": "4.158.0"
+  }
+}
