@@ -19,7 +19,6 @@
       "migrations_dir": "migrations"
     }
   ],
-  "limits": { "cpu_ms": 10 },
   "triggers": { "crons": ["17 0 * * *"] },
   "observability": { "enabled": false }
 }
