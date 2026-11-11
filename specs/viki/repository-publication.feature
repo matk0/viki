@@ -5,6 +5,8 @@ Feature: Publish a read-only specification from Git
 
   @id:VIKI-SC-REPOSITORY-READ-ONLY
   Scenario: Imported specifications cannot be edited independently
+    Changes belong in the source repository, so the wiki cannot create a second
+    version of the specification with independent authority.
     Given a workspace is managed by a configured Git repository
     When an authenticated reader tries to create a wiki draft
     Then the request is rejected as read-only
@@ -12,6 +14,8 @@ Feature: Publish a read-only specification from Git
 
   @id:VIKI-SC-REPOSITORY-LAST-GOOD
   Scenario: A rejected publication preserves the last valid snapshot
+    A validation failure prevents the new publication from replacing a catalogue
+    that readers can already use.
     Given a workspace has a successfully imported specification snapshot
     When the importer receives a publication that fails validation
     Then the publication is rejected
@@ -19,6 +23,8 @@ Feature: Publish a read-only specification from Git
 
   @id:VIKI-SC-REPOSITORY-SAME-CONTENT
   Scenario: A new CI receipt reuses unchanged specification revisions
+    A new verification run is evidence about execution. It does not create a
+    different business meaning when the scenario itself is unchanged.
     Given the current snapshot contains an imported scenario revision
     When an eligible publication repeats the same scenario content with a new CI receipt
     Then the scenario keeps its existing business revision

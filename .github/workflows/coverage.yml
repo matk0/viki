@@ -54,5 +54,13 @@ jobs:
       - name: Install Hermes test dependencies
         run: python -m pip install --disable-pip-version-check -r hermes/requirements-test.txt
 
+      - name: Install public demo dependencies
+        working-directory: public-demo
+        run: npm ci
+
       - name: Run 100% coverage gate
         run: make test-coverage
+
+      - name: Build public demo
+        working-directory: public-demo
+        run: npm run build

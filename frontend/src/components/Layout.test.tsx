@@ -55,11 +55,28 @@ vi.mock('./assistant/AssistantPanel', () => ({ AssistantPanel: () => <div>Assist
 vi.mock('./NewPageDialog', () => ({ NewPageDialog: ({ initialKind }: { initialKind: string }) => <div>New {initialKind}</div> }))
 
 beforeEach(() => {
+  vi.unstubAllEnvs()
   mocks.assistantOpen = false
   mocks.voiceListening = false
   mocks.pathname = '/concepts'
   mocks.newPageKind = null
   for (const mock of [mocks.setAssistantOpen, mocks.closeNewPage, mocks.logout, mocks.startVoice, mocks.stopVoice, mocks.cancelVoice, mocks.navigate]) mock.mockReset()
+})
+
+it('shows public documentation and Q&A without an account menu, Edit, audit, or microphone shortcut', () => {
+  vi.stubEnv('VITE_PUBLIC_DEMO', 'true')
+  mocks.assistantOpen = true
+  renderLayout()
+  expect(screen.getByText('Viki explains Viki')).toBeVisible()
+  expect(screen.getByText('Viki, explained by Viki.')).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Ask about Viki' })).toBeVisible()
+  expect(screen.queryByText('matej@matejlukasik.com')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Change history' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+  fireEvent.keyDown(window, { ctrlKey: true, shiftKey: true, key: 'm' })
+  expect(mocks.setAssistantOpen).toHaveBeenCalledWith(true)
+  expect(mocks.startVoice).not.toHaveBeenCalled()
+  vi.unstubAllEnvs()
 })
 
 function renderLayout() {

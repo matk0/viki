@@ -69,13 +69,19 @@ The core wiki works without a model-provider key. Assistant requests and backgro
 
 The [self-documenting catalogue](specs/viki/README.md) explains Viki using its own vocabulary: concepts, features, and scenarios. It covers specification revisions, review rules, repository authority, assistant permissions, and translations, with links to the implementation and existing tests.
 
-These sources are the starting point for a public instance in which visitors can explore how Viki works and ask questions about it. The public instance is not deployed yet. The catalogue's Gherkin is explanatory: it does not currently have Cucumber step bindings or an eligible CI publication, and must not be presented as imported execution evidence.
+**[Open the public demo →](https://viki.matej-7d2.workers.dev/)**
+
+The public demo uses Viki's reader to present this catalogue without signing in. Visitors can search the documentation and ask questions with source citations. Each browser tab keeps its own conversation; history clears on reload and is not stored on the server.
+
+To fit Cloudflare's free runtime, the demo uses a small Workers adapter rather than the full Go/PostgreSQL/Hermes stack. It bundles the checked-in catalogue and uses gpt-oss-20b through Workers AI. D1 stores usage counters only. The initial limits are five questions per visitor and twenty globally per UTC day; reaching a limit pauses Q&A while browsing and search remain available. No NVIDIA hosted trial endpoint is used.
+
+The catalogue's Gherkin is explanatory: it has no Cucumber step bindings or eligible CI publication and is not imported execution evidence. See [public demo deployment](public-demo/README.md) for the architecture, free-tier boundaries, local checks, and release commands.
 
 ## Project status
 
 Viki is an early-stage, single-organization pilot built with React, Go, PostgreSQL, and Hermes. The Git-managed reader has been used with Vozokany, including automatic CI-artifact imports and Slovak presentation. The generic publication contract still needs validation with a second application.
 
-The local stack is available below, and [the Umbrel configuration](deploy/umbrel/compose.yaml) supports the existing private installation. Anonymous public access, Git write-back, and autonomous software delivery are not currently supported. The optional developer worker is experimental; its bundled target only returns a receipt.
+The local stack is available below, and [the Umbrel configuration](deploy/umbrel/compose.yaml) supports the existing private installation. The full wiki still uses a fixed bootstrap account; anonymous access is available through the separate public-demo adapter. Git write-back and autonomous software delivery remain deferred. The optional developer worker is experimental; its bundled target only returns a receipt.
 
 > [!NOTE]
 > The default Docker Compose stack binds to `127.0.0.1`. It is a local setup, not a public hosting configuration. The fixed bootstrap account is another current pilot limitation.
@@ -166,6 +172,7 @@ The Docker Compose path above is the supported full-stack setup. For focused sou
 
 ```sh
 (cd frontend && npm ci)
+(cd public-demo && npm ci)
 python3 -m pip install -r hermes/requirements-test.txt
 ```
 
@@ -213,7 +220,7 @@ Run the strict coverage gate used by this repository:
 make test-coverage
 ```
 
-`make test-integration` and `make test-coverage` recreate the `viki_test` database. They do not touch the main `viki` database, but they are destructive to that test database. The coverage gate enforces 100% coverage for Go, frontend, and the Hermes plugin, and writes reports to the ignored `coverage/` directory.
+`make test-integration` and `make test-coverage` recreate the `viki_test` database. They do not touch the main `viki` database, but they are destructive to that test database. The coverage gate enforces 100% coverage for Go, frontend, and the Hermes plugin, and also runs the public-demo API tests. Reports go to the ignored `coverage/` directory. Public-demo model calls are mocked in automated tests.
 
 The Compose file declares a fixed project name, so a separate Git worktree alone does not isolate its containers or volumes. For isolated checks, set a unique project name, for example `COMPOSE_PROJECT_NAME=viki-checks make test-coverage`. The test targets expect PostgreSQL on `127.0.0.1:5433`; that port must be available to the selected test stack.
 

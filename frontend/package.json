@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
+    "build:public": "tsc --noEmit && VITE_PUBLIC_DEMO=true vite build",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:public": "playwright test --config playwright.public.config.ts",
     "generate:api": "openapi-typescript ../openapi/openapi.yaml -o src/api/generated.ts"
   },
   "dependencies": {
