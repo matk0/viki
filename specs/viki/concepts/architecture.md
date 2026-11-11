@@ -6,6 +6,8 @@ The full Viki application has a React/Vite reader, a Go HTTP API, and PostgreSQL
 persistence with pgvector and text search. Separate Hermes profiles provide Q&A,
 editing, and an experimental developer worker. Docker Compose runs those services
 for local development; the existing private deployment runs on Umbrel.
+Viki does not automatically deploy applications. The bundled experimental
+development target returns a receipt rather than delivering production code.
 
 This public demo reuses the React reader with a smaller, separate Cloudflare
 Workers API. Its catalogue is built from Viki's own checked-in Markdown and

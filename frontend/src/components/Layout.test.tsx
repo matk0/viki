@@ -56,6 +56,11 @@ vi.mock('./NewPageDialog', () => ({ NewPageDialog: ({ initialKind }: { initialKi
 
 beforeEach(() => {
   vi.unstubAllEnvs()
+  const values = new Map<string, string>()
+  Object.defineProperty(window, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  } })
   mocks.assistantOpen = false
   mocks.voiceListening = false
   mocks.pathname = '/concepts'
