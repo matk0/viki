@@ -50,7 +50,7 @@ Initial application ceilings:
 | Prior messages | 4, at most 800 characters each |
 | Serialized model input | 14,000 UTF-8 bytes |
 | Generated tokens, including reasoning | 1,536 |
-| Worker CPU | 10 ms per request |
+| Worker CPU | 10 ms per request, enforced by Workers Free |
 
 One atomic D1 statement checks and increments all three request counters before
 inference. Failed model calls consume a reservation too. There are no automatic
@@ -63,6 +63,9 @@ D1 has its own free storage/read/write allowances; this app writes only a few
 counter rows per question. See the dated [hosting assessment](../docs/cloudflare-public-demo.md)
 and [model assessment](../docs/nvidia-public-qa.md). The app's request cap is
 conservative, not a precise meter of the account's remaining neuron allowance.
+
+Do not configure `limits.cpu_ms` for the Free plan. Cloudflare rejects that
+setting even when it equals the automatic 10 ms Free limit.
 
 The selected open model also appears in NVIDIA's catalogue. Inference here uses
 Cloudflare's hosted model, not NVIDIA's internal-evaluation trial API. No NVIDIA
