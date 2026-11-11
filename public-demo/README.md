@@ -16,10 +16,14 @@ Vozokany installation.
   bindings and are not presented as verified execution evidence.
   The public reader loads once rather than continuously polling the bundled
   catalogue, avoiding unnecessary dynamic requests while a tab stays open.
-- Questions use one synchronous gpt-oss-20b inference through Cloudflare Workers
+- Questions use synchronous gpt-oss-20b inference through Cloudflare Workers
   AI. Retrieval selects up to six public source excerpts. Responses use strict
-  JSON output; unknown citation IDs, incomplete output, or invalid JSON are
-  rejected. No model tools or application writes are available.
+  JSON with citation IDs enumerated from those sources; output is still validated
+  server-side. Known capacity/timeouts and rejected JSON, citations, or token
+  truncation can receive one retry with a short jittered delay. Each attempt has
+  a native 15-second cancellation signal. Daily provider exhaustion, configuration
+  errors, unknown upstream errors, and content filtering are not retried.
+  No model tools or application writes are available.
 - Each tab keeps its own chat in React state. Only the last four bounded
   messages are sent with a follow-up question. Reloading clears the history.
   No server conversation table, shared login, or conversation-reading endpoint
@@ -43,19 +47,22 @@ Initial application ceilings:
 
 | Limit | Value |
 | --- | --- |
-| Global questions | 20 per UTC day |
+| Global model attempts, including retries | 20 per UTC day |
 | Visitor questions | 5 per UTC day |
 | IP questions | 10 per UTC day |
 | Question | 1,000 characters |
 | Prior messages | 4, at most 800 characters each |
 | Serialized model input | 14,000 UTF-8 bytes |
 | Generated tokens, including reasoning | 1,536 |
+| Attempts per question | At most 2, each with a 15-second timeout |
 | Worker CPU | 10 ms per request, enforced by Workers Free |
 
-One atomic D1 statement checks and increments all three request counters before
-inference. Failed model calls consume a reservation too. There are no automatic
-retries or model/provider fallbacks. Exhaustion leaves browsing and search
-available.
+One atomic D1 statement checks and increments the visitor/IP question counters
+and global model-attempt counter before inference. A retry atomically reserves
+another global attempt; it does not count as another visitor/IP question.
+Failed and aborted calls consume reservations too. Retries reduce the number
+of questions that fit into the unchanged global allowance. There are no
+model/provider fallbacks. Exhaustion leaves browsing and search available.
 
 Cloudflare Free currently includes 100,000 dynamic requests per day and 10,000
 Workers AI neurons per day. Static asset requests are free and unlimited.
@@ -70,6 +77,20 @@ setting even when it equals the automatic 10 ms Free limit.
 The selected open model also appears in NVIDIA's catalogue. Inference here uses
 Cloudflare's hosted model, not NVIDIA's internal-evaluation trial API. No NVIDIA
 API key is required.
+
+## Diagnose failures
+
+Failed inference attempts emit an allowlisted failure kind, numeric provider
+code when available, attempt number, and random request reference. A final Q&A
+error shows that reference to the visitor. The application emits no questions,
+history, generated text, raw provider errors, headers, or cookies to logs.
+
+Workers Logs persists these custom events within its Free allowance. Automatic
+invocation logs and traces are disabled and URL query strings are redacted;
+Cloudflare still adds platform context to custom events. The initial generic
+503 cannot be attributed precisely because it predates these diagnostics.
+See the [investigation and provider assessment](../docs/free-qa-reliability-research.md)
+for the evidence, error-code policy, logging allowances, and API-key decision.
 
 ## Local checks
 

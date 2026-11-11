@@ -24,7 +24,7 @@ Workers AI provides **10,000 neurons per account per day** on Workers Free. The 
 
 For illustration, 4,000 input tokens plus 600 output tokens consumes approximately `4000 × 18182 / 1000000 + 600 × 27273 / 1000000 = 89.1` neurons. That implies roughly 112 such calls from the full allowance, before any other account usage. This is a conditional calculation, not a daily-question guarantee: reasoning, larger history/context, retries, and other inference consume capacity too. Bound total generated tokens and measure real usage. Keep the account on Free; do not automatically upgrade or switch to a billed endpoint.
 
-Use application counters with a conservative global daily ceiling and per-visitor/IP limits in addition to provider limits. Make one bounded synchronous inference per question, use only the selected public catalogue, and retain conversations only in the individual visitor's browser if persistence is unnecessary. A request-count ceiling is not itself a precise neuron meter.
+Use application counters with a conservative global daily ceiling and per-visitor/IP limits in addition to provider limits. The [reliability follow-up](free-qa-reliability-research.md) permits one bounded retry but counts it against the same twenty-model-attempt daily ceiling. Use only the selected public catalogue, and retain conversations only in the individual visitor's browser if persistence is unnecessary. An attempt-count ceiling is not itself a precise neuron meter.
 
 ## Exact Workers AI request and response contracts
 

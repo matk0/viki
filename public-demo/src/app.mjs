@@ -1,7 +1,8 @@
 import catalogue from './catalogue.json' with { type: 'json' }
+import { answerWithRetry, InferenceError } from './inference.mjs'
 
-export const MODEL = '@cf/openai/gpt-oss-20b'
-export const DAILY_QUESTIONS = 20
+export { MODEL, finalAnswer } from './inference.mjs'
+export const DAILY_ATTEMPTS = 20
 const MAX_BODY = 14000
 const day = () => new Date().toISOString().slice(0, 10)
 const details = catalogue.pages
@@ -64,37 +65,20 @@ async function reserve(env, request) {
     'INSERT INTO quota(bucket, day, used) SELECT bucket, ?, 1 FROM limits ' +
     'WHERE NOT EXISTS (SELECT 1 FROM limits l JOIN quota q ON q.bucket = l.bucket AND q.day = ? WHERE q.used >= l.cap) ' +
     'ON CONFLICT(bucket, day) DO UPDATE SET used = used + 1 RETURNING bucket'
-  ).bind('global', DAILY_QUESTIONS, 'visitor:' + visitorHash, 5, 'ip:' + ipHash, 10, currentDay, currentDay).all()
+  ).bind('global', DAILY_ATTEMPTS, 'visitor:' + visitorHash, 5, 'ip:' + ipHash, 10, currentDay, currentDay).all()
   if (result.results.length !== 3) throw new PublicError(429, 'free_quota_exhausted', 'The free Q&A allowance is used up for now. Please try tomorrow. Browsing and search are still available.')
   return cookie ? {} : { 'Set-Cookie': 'viki_demo_visitor=' + visitor + '; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400' }
 }
 
-const answerSchema = {
-  type: 'object', additionalProperties: false,
-  required: ['answer', 'source_ids'],
-  properties: { answer: { type: 'string' }, source_ids: { type: 'array', items: { type: 'string' }, maxItems: 6 } },
+async function reserveRetry(env) {
+  const result = await env.DB.prepare(
+    "INSERT INTO quota(bucket, day, used) VALUES ('global', ?, 1) " +
+    'ON CONFLICT(bucket, day) DO UPDATE SET used = used + 1 WHERE used < ? RETURNING bucket'
+  ).bind(day(), DAILY_ATTEMPTS).all()
+  if (result.results.length !== 1) throw new PublicError(429, 'free_quota_exhausted', 'The free Q&A allowance is used up for now. Please try tomorrow. Browsing and search are still available.')
 }
 
-export function finalAnswer(result, sources) {
-  if (result.error || result.incomplete_details || (result.status && result.status !== 'completed')) throw new Error('Incomplete model output')
-  const text = result.output_text ?? result.output?.filter((item) => item.type === 'message' && item.role === 'assistant')
-    .flatMap((item) => item.content ?? []).filter((item) => item.type === 'output_text').map((item) => item.text).join('')
-  if (typeof text !== 'string') throw new Error('Missing model answer')
-  const value = JSON.parse(text)
-  const allowed = new Map(sources.map((source) => [source.sourceId, source]))
-  if (!value || typeof value.answer !== 'string' || !value.answer.trim() || value.answer.length > 6000 ||
-      !Array.isArray(value.source_ids) || value.source_ids.length > 6 || value.source_ids.some((id) => !allowed.has(id)) ||
-      Object.keys(value).some((key) => !['answer', 'source_ids'].includes(key))) throw new Error('Invalid model answer or citation')
-  return {
-    answer: value.answer,
-    citations: [...new Set(value.source_ids)].map((id) => {
-      const detail = allowed.get(id)
-      return { pageId: detail.page.id, revisionId: detail.repositoryRevision.id, pageTitle: detail.page.title, draft: false }
-    }),
-  }
-}
-
-async function question(request, env) {
+async function question(request, env, requestId) {
   const origin = new URL(request.url).origin
   if (request.headers.get('Origin') !== origin) throw new PublicError(403, 'invalid_origin', 'Send questions from this demo.')
   const body = await readBody(request)
@@ -116,18 +100,20 @@ async function question(request, env) {
   const input = [{ role: 'system', content: instructions }, ...(body.history ?? []), { role: 'user', content: body.question }]
   if (new TextEncoder().encode(JSON.stringify(input)).length > 14000) throw new PublicError(413, 'message_too_large', 'Try a shorter question or start a new chat.')
   const headers = await reserve(env, request)
-  const result = await env.AI.run(MODEL, {
-    input, stream: false, max_output_tokens: 1536, reasoning: { effort: 'low' },
-    text: { format: { type: 'json_schema', name: 'wiki_answer', strict: true, schema: answerSchema } },
-  })
-  return json(finalAnswer(result, sources), 200, headers)
+  try {
+    return json(await answerWithRetry(env.AI, { input, sources, requestId, reserveRetry: () => reserveRetry(env) }), 200, headers)
+  } catch (error) {
+    if (error instanceof InferenceError || error instanceof PublicError) error.headers = headers
+    throw error
+  }
 }
 
 const worker = {
     async fetch(request, env) {
       const url = new URL(request.url)
+      const requestId = crypto.randomUUID()
       try {
-        if (url.pathname === '/api/public/qa' && request.method === 'POST') return await question(request, env)
+        if (url.pathname === '/api/public/qa' && request.method === 'POST') return await question(request, env, requestId)
         if (request.method !== 'GET' && request.method !== 'HEAD') throw new PublicError(403, 'git_managed_read_only', 'This public catalogue is read-only.')
         if (url.pathname === '/healthz') return json({ status: 'ok' })
         if (url.pathname === '/readyz') { await env.DB.prepare('SELECT 1').first(); return json({ status: 'ready', commit: catalogue.source.commit }) }
@@ -164,9 +150,16 @@ const worker = {
         if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/internal/')) throw new PublicError(404, 'not_found', 'The page was not found.')
         return await env.ASSETS.fetch(request)
       } catch (error) {
-        if (error instanceof PublicError) return json({ error: { code: error.code, message: error.message } }, error.status)
+        if (error instanceof PublicError) return json({ error: { code: error.code, message: error.message } }, error.status, error.headers)
+        if (error instanceof InferenceError) {
+          const exhausted = error.kind === 'provider_quota'
+          const message = exhausted ? 'The free model allowance is used up. Please try tomorrow. Browsing and search are still available.'
+            : error.kind === 'provider_timeout' ? 'Q&A took too long. Please try again later.'
+              : 'Q&A could not return a cited answer. Please try again later. Browsing and search are still available.'
+          return json({ error: { code: exhausted ? 'free_quota_exhausted' : error.kind, message: message + ' Reference: ' + requestId, requestId } }, exhausted ? 429 : 503, error.headers)
+        }
         // Do not log questions, model responses, cookies, or provider credentials.
-        console.error('Public demo request failed', { name: error?.name ?? 'Error' })
+        console.error('public_request_failed', { requestId, name: error?.name ?? 'Error' })
         return json({ error: { code: 'assistant_unavailable', message: 'Q&A could not return a cited answer. Please try again later. Browsing and search are still available.' } }, 503)
       }
     },

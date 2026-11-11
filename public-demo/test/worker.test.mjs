@@ -2,7 +2,7 @@ import { afterEach, beforeEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { readFile } from 'node:fs/promises'
-import worker, { DAILY_QUESTIONS, MODEL, finalAnswer, retrieve } from '../src/app.mjs'
+import worker, { DAILY_ATTEMPTS, MODEL, finalAnswer, retrieve } from '../src/app.mjs'
 
 let sqlite, env, calls
 beforeEach(async () => {
@@ -17,8 +17,8 @@ beforeEach(async () => {
   calls = []
   env = {
     DB: { prepare },
-    AI: { run: async (model, input) => {
-      calls.push({ model, input })
+    AI: { run: async (model, input, options) => {
+      calls.push({ model, input, options })
       return { status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({
         answer: 'Unresolved objections block approval.',
         source_ids: [retrieve(input.input.at(-1).content)[0].sourceId],
@@ -27,6 +27,7 @@ beforeEach(async () => {
     ASSETS: { fetch: async () => new Response('<html>Viki reader</html>', { headers: { 'Content-Type': 'text/html' } }) },
   }
   mock.method(console, 'error', () => undefined)
+  mock.method(console, 'warn', () => undefined)
 })
 afterEach(() => { sqlite.close(); mock.restoreAll() })
 
@@ -90,6 +91,8 @@ test('questions use one bounded inference and only supplied source citations; no
   assert.equal(calls[0].input.max_output_tokens, 1536)
   assert.equal(calls[0].input.reasoning.effort, 'low')
   assert.equal(calls[0].input.text.format.strict, true)
+  assert.deepEqual(calls[0].input.text.format.schema.properties.source_ids.items.enum, retrieve('What blocks approval?').map((source) => source.sourceId))
+  assert.ok(calls[0].options.signal instanceof AbortSignal)
   assert.ok(new TextEncoder().encode(JSON.stringify(calls[0].input.input)).length <= 14000)
   assert.ok(!JSON.stringify(calls[1]).includes('private visitor A phrase'))
   const rows = JSON.stringify(sqlite.prepare('SELECT * FROM quota').all())
@@ -122,10 +125,10 @@ test('visitor, IP, and global limits fail closed while catalogue reading remains
 
 test('concurrent requests cannot overspend the global daily request ceiling', async () => {
   const results = await Promise.all(Array.from({ length: 30 }, (_, index) => send(ask(undefined, { headers: { 'CF-Connecting-IP': '192.0.2.' + (index + 1) } }))))
-  assert.equal(results.filter((response) => response.status === 200).length, DAILY_QUESTIONS)
-  assert.equal(results.filter((response) => response.status === 429).length, 30 - DAILY_QUESTIONS)
-  assert.equal(calls.length, DAILY_QUESTIONS)
-  assert.equal(sqlite.prepare("SELECT used FROM quota WHERE bucket='global'").get().used, DAILY_QUESTIONS)
+  assert.equal(results.filter((response) => response.status === 200).length, DAILY_ATTEMPTS)
+  assert.equal(results.filter((response) => response.status === 429).length, 30 - DAILY_ATTEMPTS)
+  assert.equal(calls.length, DAILY_ATTEMPTS)
+  assert.equal(sqlite.prepare("SELECT used FROM quota WHERE bucket='global'").get().used, DAILY_ATTEMPTS)
 })
 
 test('provider failures, incomplete output, invalid JSON and invented citations produce visible errors', async () => {
@@ -153,4 +156,112 @@ test('retention removes old quota buckets without keeping conversation content',
   sqlite.prepare('INSERT INTO quota VALUES (?, ?, ?)').run('current', new Date().toISOString().slice(0, 10), 1)
   await worker.scheduled({}, env)
   assert.deepEqual(sqlite.prepare('SELECT bucket FROM quota').all().map((row) => row.bucket), ['current'])
+})
+
+test('a transient capacity failure recovers once and counts both model attempts', async () => {
+  const succeed = env.AI.run
+  let attempts = 0
+  env.AI.run = async (...args) => {
+    attempts++
+    if (attempts === 1) throw new Error('3040: model temporarily at capacity')
+    return succeed(...args)
+  }
+  const response = await send(ask())
+  assert.equal(response.status, 200)
+  assert.equal(attempts, 2)
+  assert.equal(sqlite.prepare("SELECT used FROM quota WHERE bucket='global'").get().used, 2)
+  assert.equal(sqlite.prepare("SELECT used FROM quota WHERE bucket LIKE 'ip:%'").get().used, 1)
+})
+
+test('a rejected structured answer recovers once without weakening citation validation', async () => {
+  const succeed = env.AI.run
+  let attempts = 0
+  env.AI.run = async (...args) => {
+    attempts++
+    if (attempts === 1) return { output_text: JSON.stringify({ answer: 'Unverified.', source_ids: ['invented'] }) }
+    return succeed(...args)
+  }
+  const response = await send(ask())
+  assert.equal(response.status, 200)
+  const answer = await response.json()
+  assert.ok(answer.citations.length)
+  assert.ok(!JSON.stringify(answer).includes('invented'))
+  assert.equal(attempts, 2)
+})
+
+test('daily provider exhaustion, configuration errors, unknown failures and refusals are not retried', async () => {
+  for (const [failure, status, kind] of [
+    [new Error('3036: daily allowance exhausted'), 429, 'free_quota_exhausted'],
+    [new Error('3006: invalid input'), 503, 'provider_error'],
+    [new Error('unknown upstream problem'), 503, 'provider_error'],
+    [{ incomplete_details: { reason: 'content_filter' } }, 503, 'answer_refused'],
+    [{ output: [{ type: 'message', content: [{ type: 'refusal' }] }] }, 503, 'answer_refused'],
+  ]) {
+    let attempts = 0
+    env.AI.run = async () => { attempts++; if (failure instanceof Error) throw failure; return failure }
+    const response = await send(ask())
+    assert.equal(response.status, status)
+    assert.equal((await response.json()).error.code, kind)
+    assert.equal(attempts, 1)
+  }
+})
+
+test('timeouts pass a native cancellation signal and receive only one recovery attempt', async () => {
+  const timeout = AbortSignal.timeout.bind(AbortSignal)
+  const deadlines = []
+  mock.method(AbortSignal, 'timeout', (milliseconds) => {
+    deadlines.push(milliseconds)
+    return deadlines.length === 1 ? AbortSignal.abort(new DOMException('timed out', 'TimeoutError')) : timeout(milliseconds)
+  })
+  const succeed = env.AI.run
+  let attempts = 0
+  env.AI.run = async (...args) => {
+    attempts++
+    if (args[2].signal.aborted) throw args[2].signal.reason
+    return succeed(...args)
+  }
+  assert.equal((await send(ask())).status, 200)
+  assert.deepEqual(deadlines, [15000, 15000])
+  assert.equal(attempts, 2)
+})
+
+test('repeated failures stop after two calls and expose a reference without leaking content', async () => {
+  let attempts = 0
+  env.AI.run = async () => { attempts++; throw new Error('3040: private-question-text provider-secret-placeholder') }
+  const response = await send(ask())
+  const body = await response.json()
+  assert.equal(response.status, 503)
+  assert.equal(body.error.code, 'provider_capacity')
+  assert.match(body.error.requestId, /^[a-f0-9-]{36}$/)
+  assert.ok(body.error.message.includes(body.error.requestId))
+  assert.equal(attempts, 2)
+  assert.match(response.headers.get('Set-Cookie'), /HttpOnly; Secure; SameSite=Strict/)
+  const logs = console.warn.mock.calls.map((call) => call.arguments)
+  assert.equal(logs.length, 2)
+  assert.equal(logs[0][1].requestId, body.error.requestId)
+  assert.equal(logs[0][1].providerCode, 3040)
+  assert.ok(!JSON.stringify([logs, body]).includes('private-question-text'))
+  assert.ok(!JSON.stringify([logs, body]).includes('provider-secret-placeholder'))
+})
+
+test('concurrent retries cannot exceed the global model-attempt ceiling', async () => {
+  sqlite.prepare('INSERT INTO quota VALUES (?, ?, ?)').run('global', new Date().toISOString().slice(0, 10), DAILY_ATTEMPTS - 4)
+  let attempts = 0
+  env.AI.run = async () => { attempts++; throw new Error('3040: temporary capacity') }
+  const responses = await Promise.all(Array.from({ length: 6 }, (_, index) => send(ask(undefined, { headers: { 'CF-Connecting-IP': '192.0.2.' + (index + 1) } }))))
+  assert.ok(responses.every((response) => [429, 503].includes(response.status)))
+  assert.equal(attempts, 4)
+  assert.equal(sqlite.prepare("SELECT used FROM quota WHERE bucket='global'").get().used, DAILY_ATTEMPTS)
+  assert.equal((await send(request('/api/v1/pages'))).status, 200)
+})
+
+test('malformed JSON and token truncation recover once while invalid results stay rejected', async () => {
+  for (const failure of [{ output_text: '{' }, { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } }]) {
+    const succeed = env.AI.run
+    let attempts = 0
+    env.AI.run = async (...args) => { attempts++; return attempts === 1 ? failure : succeed(...args) }
+    assert.equal((await send(ask())).status, 200)
+    assert.equal(attempts, 2)
+    env.AI.run = succeed
+  }
 })

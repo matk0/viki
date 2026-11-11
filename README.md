@@ -73,7 +73,7 @@ The [self-documenting catalogue](specs/viki/README.md) explains Viki using its o
 
 The public demo uses Viki's reader to present this catalogue without signing in. Visitors can search the documentation and ask questions with source citations. Each browser tab keeps its own conversation; history clears on reload and is not stored on the server.
 
-To fit Cloudflare's free runtime, the demo uses a small Workers adapter rather than the full Go/PostgreSQL/Hermes stack. It bundles the checked-in catalogue and uses gpt-oss-20b through Workers AI. D1 stores usage counters only. The initial limits are five questions per visitor and twenty globally per UTC day; reaching a limit pauses Q&A while browsing and search remain available. No NVIDIA hosted trial endpoint is used.
+To fit Cloudflare's free runtime, the demo uses a small Workers adapter rather than the full Go/PostgreSQL/Hermes stack. It bundles the checked-in catalogue and uses gpt-oss-20b through Workers AI. D1 stores usage counters only. The limits are five questions per visitor and twenty model attempts globally per UTC day, including at most one retry per question. Each attempt has a 15-second timeout. Reaching a limit pauses Q&A while browsing and search remain available. No NVIDIA hosted trial endpoint is used.
 
 The catalogue's Gherkin is explanatory: it has no Cucumber step bindings or eligible CI publication and is not imported execution evidence. See [public demo deployment](public-demo/README.md) for the architecture, free-tier boundaries, local checks, and release commands.
 
