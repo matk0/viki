@@ -15,7 +15,7 @@ test('public reader supports search, cited Q&A, separate visitors, and mobile re
     await route.fulfill({ json: { answer: 'An unresolved objection blocks approval until it is resolved.', citations: [citation] } })
   })
   await page.goto('/')
-  await expect(page.getByText('Viki, explained by Viki.')).toBeVisible()
+  await expect(page.locator('.public-demo-banner, .public-demo-footer')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Concepts', exact: true })).toBeVisible()
   await page.getByRole('button', { name: /^Search/ }).click()
   await page.getByRole('textbox').fill('unresolved objection')

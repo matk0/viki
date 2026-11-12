@@ -127,7 +127,7 @@ export function Layout({ children }: { children: ReactNode }) {
             {t('nav.audit')}
           </NavItem>}
         </nav>
-        {publicDemo ? <div className="public-demo-footer"><strong>Viki explains Viki</strong><span>Read-only public demo</span><a href="https://github.com/matk0/viki">Source on GitHub ↗</a></div> : <div className="sidebar-user">
+        {!publicDemo && <div className="sidebar-user">
           <div className="avatar">{user?.displayName.slice(0, 1)}</div>
           <div>
             <strong>{user?.displayName}</strong>
@@ -142,7 +142,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>}
       </aside>
-      <main className="main-content">{publicDemo && <div className="public-demo-banner"><strong>Viki, explained by Viki.</strong><span>Explore Viki’s own concepts, features, and scenarios. Ask a question to trace an answer back to its sources.</span></div>}{children}</main>
+      <main className="main-content">{children}</main>
       <button
         className={`assistant-fab ${assistantVisible ? 'active' : ''}`}
         onClick={() => {

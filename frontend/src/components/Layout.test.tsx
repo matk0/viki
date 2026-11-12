@@ -72,8 +72,8 @@ it('shows public documentation and Q&A without an account menu, Edit, audit, or 
   vi.stubEnv('VITE_PUBLIC_DEMO', 'true')
   mocks.assistantOpen = true
   renderLayout()
-  expect(screen.getByText('Viki explains Viki')).toBeVisible()
-  expect(screen.getByText('Viki, explained by Viki.')).toBeVisible()
+  expect(screen.queryByText('Viki explains Viki')).not.toBeInTheDocument()
+  expect(screen.queryByText('Viki, explained by Viki.')).not.toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Ask about Viki' })).toBeVisible()
   expect(screen.queryByText('matej@matejlukasik.com')).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Change history' })).not.toBeInTheDocument()
