@@ -144,5 +144,11 @@ and its revision citations after release. A build alone does not verify a
 deployed model response.
 
 Future releases are manual. No Cloudflare credentials are stored in GitHub.
+Use the same successful GitHub `main` commit for every deployment and source
+mirror. Fast-forward GitLab and local checkouts to that commit, build Cloudflare
+and Umbrel artifacts from the clean source, and verify their recorded source
+revisions after release. Runtime configuration and instance data may differ;
+deployment branches and host-only source patches are not release sources.
+The public reader uses the normal Viki layout without a demo banner or footer.
 For an application rollback, use `npx wrangler rollback` after inspecting
 `npx wrangler deployments list`. The quota schema has no application content.

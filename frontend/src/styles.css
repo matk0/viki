@@ -376,13 +376,7 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 .assistant-drawer { position: fixed; z-index: 40; top: 0; right: 0; bottom: 0; width: 410px; border-left: 2px solid #202020; background: #fff; box-shadow: -6px 0 0 #d8d8d8; }
 .assistant-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 14px; }
 .assistant-drawer[hidden] { display: none; }
-.public-demo-footer { margin-top: auto; display: grid; gap: 7px; padding: 22px; font-size: 13px; border-top: 2px solid var(--line); }
-.public-demo-footer span { color: var(--muted); }
-.public-demo-footer a { color: inherit; text-underline-offset: 3px; }
 .public-demo .sidebar-nav .nav-item:last-child { margin-top: 0; }
-.public-demo .document-layout, .public-demo .page-container { padding-top: 38px; }
-.public-demo-banner { display: grid; gap: 7px; padding: 17px 28px; border-bottom: 2px solid var(--line); background: #f3f3f0; font-size: 13px; }
-.public-demo-banner span { color: var(--muted); line-height: 1.5; max-width: 850px; }
 .public-qa { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .public-qa-heading { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; padding: 20px; border-bottom: 2px solid var(--line); }
 .public-qa-heading h2 { margin: 0 0 7px; font-size: 18px; }
@@ -402,9 +396,6 @@ kbd { padding: 1px 5px; border: 1px solid #d9d9d9; border-radius: 4px; backgroun
 .public-qa-form textarea { width: 100%; padding: 10px; resize: vertical; max-height: 160px; font: inherit; border: 1px solid var(--line); border-radius: 6px; }
 .public-qa-actions { display: flex; justify-content: space-between; gap: 12px; }
 .public-qa-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
-@media (max-width: 930px) {
-  .public-demo-banner { padding-left: 54px; }
-}
 .assistant-header { display: flex; align-items: center; justify-content: space-between; padding: 17px 18px; border-bottom: 2px solid var(--line); }
 .assistant-header > div { display: flex; align-items: center; gap: 8px; }
 .assistant-header > div > div { display: grid; }
